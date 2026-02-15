@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>EasyWorkflow</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Import official React Flow styles to ensure correct rendering -->
+    <link href="https://cdn.jsdelivr.net/npm/@xyflow/react@12/dist/style.css" rel="stylesheet">
+    <style>
+      body {
+        font-family: 'Inter', sans-serif;
+        background-color: #fafafa;
+        overflow: hidden; /* Prevent scrolling on the main page */
+      }
+      /* Custom scrollbar for webkit */
+      ::-webkit-scrollbar {
+        width: 6px;
+        height: 6px;
+      }
+      ::-webkit-scrollbar-track {
+        background: transparent;
+      }
+      ::-webkit-scrollbar-thumb {
+        background: #e5e7eb;
+        border-radius: 3px;
+      }
+      ::-webkit-scrollbar-thumb:hover {
+        background: #d1d5db;
+      }
+      
+      /* Critical Fix: Ensure edge paths do not have a fill color */
+      .react-flow__edge-path {
+        fill: none;
+      }
+
+      /* Animation for running nodes */
+      @keyframes breathe {
+        0%, 100% { box-shadow: 0 0 0 0px rgba(59, 130, 246, 0.4); border-color: #3b82f6; }
+        50% { box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.2); border-color: #60a5fa; }
+      }
+      .node-running {
+        animation: breathe 2s infinite ease-in-out;
+      }
+    </style>
+  <script type="importmap">
+{
+  "imports": {
+    "clsx": "https://esm.sh/clsx@^2.1.1",
+    "react/": "https://esm.sh/react@^19.2.4/",
+    "react": "https://esm.sh/react@^19.2.4",
+    "react-dom/": "https://esm.sh/react-dom@^19.2.4/",
+    "lucide-react": "https://esm.sh/lucide-react@^0.563.0",
+    "@xyflow/react": "https://esm.sh/@xyflow/react@^12.10.0",
+    "zustand": "https://esm.sh/zustand@^5.0.11",
+    "@google/genai": "https://esm.sh/@google/genai@^1.40.0"
+  }
+}
+</script>
+</head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>
