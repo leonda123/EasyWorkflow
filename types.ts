@@ -67,8 +67,9 @@ export interface NodeData extends Record<string, unknown> {
     preRequestScript?: string; // JavaScript code running before request
     testScript?: string; // JavaScript code running after response
     
-    // Process (JS Sandbox)
+    // Process (Code Sandbox)
     code?: string;
+    language?: 'javascript' | 'python'; // Supported languages
     
     // Condition
     conditionExpression?: string; // JS Expression returning boolean

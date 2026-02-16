@@ -75,7 +75,8 @@ const initialNodes: WorkflowNode[] = [
       status: NodeStatus.IDLE, 
       type: NodeType.PROCESS,
       config: {
-        code: `// Available variables: $, inputs\nif (!inputs.body.userId) {\n  throw new Error("Missing userId");\n}\nreturn { isValid: true, ts: Date.now() };`
+        code: `// Available variables: $, inputs\nif (!inputs.body.userId) {\n  throw new Error("Missing userId");\n}\nreturn { isValid: true, ts: Date.now() };`,
+        language: 'javascript'
       }
     },
   },
@@ -422,12 +423,6 @@ export const useFlowStore = create<FlowState>((set, get) => ({
 
                // **PARTIAL RUN CHECK**
                if (targetNodeId && !allowedNodes.has(node.id)) {
-                   // Skip execution, but satisfy children dependencies if necessary?
-                   // No, if a parent is skipped (because it's not in the path), the children shouldn't run either in a partial run scenario 
-                   // UNLESS they are part of the path.
-                   // But getAncestors ensures we only select nodes that ARE strictly upstream.
-                   // Nodes that are NOT upstream and NOT the target are effectively "downstream" or "parallel unrelated branches".
-                   // We just skip them.
                    return;
                }
 
@@ -519,6 +514,32 @@ export const useFlowStore = create<FlowState>((set, get) => ({
                        logs.push(`[TEST] Assertions passed.`);
                    }
                    logs.push(`[SUCCESS] Request completed.`);
+               } else if (node.data.type === NodeType.PROCESS) {
+                   // Process Node Logic (Updated for Python)
+                   const language = node.data.config.language || 'javascript';
+                   
+                   if (language === 'python') {
+                       addTraceLog({
+                          id: `trace-${node.id}-process-py`,
+                          nodeId: node.id,
+                          nodeLabel: node.data.label,
+                          type: node.data.type,
+                          status: 'running',
+                          startTime: Date.now(),
+                          message: `Initializing Python 3.10 sandbox...`
+                       });
+                       await new Promise(r => setTimeout(r, 1200));
+                       logs = [
+                           `[INFO] Environment: Python 3.10 (WASM)`,
+                           `[INFO] Loading script...`,
+                           `[INFO] Processing inputs...`,
+                           `[SUCCESS] Execution finished.`
+                       ];
+                   } else {
+                       // JS
+                       await new Promise(r => setTimeout(r, 800));
+                       logs = [`[INFO] Environment: Node.js (V8)`, `[INFO] Executing business logic...`, `[SUCCESS] Done.`];
+                   }
                } else {
                    await new Promise(r => setTimeout(r, 800));
                    logs = [`[INFO] 执行业务逻辑...`, `[SUCCESS] 完成.`];
