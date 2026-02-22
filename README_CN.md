@@ -1,4 +1,4 @@
-![EasyWorkflow](https://github.com/leonda123/EasyWorkflow/blob/main/doc/easyworkflow_new.png)
+![EasyWorkflow](https://gitee.com/leonda/EasyWorkflow/raw/main/doc/easyworkflow_new.png)
 
 # EasyWorkflow
 
@@ -8,11 +8,11 @@
 
 ## 📸 项目截图
 
-![demo1](https://github.com/leonda123/EasyWorkflow/blob/main/doc/demo1.gif)
-![demo2](https://github.com/leonda123/EasyWorkflow/blob/main/doc/demo2.gif)
-![demo3](https://github.com/leonda123/EasyWorkflow/blob/main/doc/demo3.gif)
-![demo4](https://github.com/leonda123/EasyWorkflow/blob/main/doc/demo4.gif)
-![demo5](https://github.com/leonda123/EasyWorkflow/blob/main/doc/demo5.gif)
+![demo1](https://gitee.com/leonda/EasyWorkflow/raw/main/doc/demo1.gif)
+![demo2](https://gitee.com/leonda/EasyWorkflow/raw/main/doc/demo2.gif)
+![demo3](https://gitee.com/leonda/EasyWorkflow/raw/main/doc/demo3.gif)
+![demo4](https://gitee.com/leonda/EasyWorkflow/raw/main/doc/demo4.gif)
+![demo5](https://gitee.com/leonda/EasyWorkflow/raw/main/doc/demo5.gif)
 
 ---
 
@@ -215,6 +215,7 @@ docker-compose down
 ## 📧 联系方式
 
 如有问题或建议，请联系：**dadajiu45@gmail.com**
+QQ：176942734
 
 ---
 
