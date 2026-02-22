@@ -59,7 +59,7 @@ const LoginPage = () => {
         </div>
 
         <div className="relative z-10 text-xs text-gray-500">
-            &copy; 2024 EasyWorkflow Inc. All rights reserved.
+            &copy; 2026 EasyWorkflow Inc. All rights reserved.
         </div>
       </div>
 
@@ -143,7 +143,7 @@ const LoginPage = () => {
                 </button>
             </form>
 
-            <div className="relative">
+            {/* <div className="relative">
                 <div className="absolute inset-0 flex items-center">
                     <div className="w-full border-t border-gray-200"></div>
                 </div>
@@ -168,7 +168,7 @@ const LoginPage = () => {
                     </svg>
                     GitHub
                 </button>
-            </div>
+            </div> */}
 
             <p className="text-center text-xs text-gray-500">
                 {isRegisterMode ? '已有账户？' : t.noAccount}{' '}

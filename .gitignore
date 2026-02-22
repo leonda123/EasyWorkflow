@@ -26,3 +26,6 @@ dist-ssr
 .trae/*
 todo.md
 backend/prisma/migrations
+backend_spec.md
+frontend_spec.md
+local.md
