@@ -1,10 +1,11 @@
+![EasyWorkflow](https://github.com/leonda123/EasyWorkflow/blob/main/doc/easyworkflow_new.png)
 # EasyWorkflow
 
 [English](README.md) | [中文](README_CN.md)
 
 A high-performance, enterprise-grade low-code workflow orchestration platform built with React and React Flow.
 
-## � Screenshots
+## 📸 Screenshots
 
 > 📷 Demo screenshots and GIF animations will be placed here
 
@@ -12,6 +13,34 @@ A high-performance, enterprise-grade low-code workflow orchestration platform bu
 ![EasyWorkflow Demo](./docs/demo.webp)
 ![Workflow Editor](./docs/editor.webp)
 -->
+![demo1](https://github.com/leonda123/EasyWorkflow/blob/main/doc/demo1.gif)
+![demo2](https://github.com/leonda123/EasyWorkflow/blob/main/doc/demo2.gif)
+![demo3](https://github.com/leonda123/EasyWorkflow/blob/main/doc/demo3.gif)
+![demo4](https://github.com/leonda123/EasyWorkflow/blob/main/doc/demo4.gif)
+![demo5](https://github.com/leonda123/EasyWorkflow/blob/main/doc/demo5.gif)
+---
+
+## 🎯 Why EasyWorkflow?
+
+In the rapidly evolving landscape of AI-powered workflow automation, platforms like **Dify**, **Coze**, and **n8n** have made significant contributions to the low-code/no-code space. However, when it comes to **enterprise-grade workflow orchestration**, these platforms may have certain limitations:
+
+| Challenge | Common Platforms | EasyWorkflow |
+|-----------|------------------|--------------|
+| **LLM Configuration** | Complex setup, vendor lock-in | Simple configuration, multi-provider support |
+| **Private Deployment** | Limited self-hosting options | Full control, on-premise ready |
+| **Scheduling Flexibility** | Fixed patterns | Customizable scheduling strategies |
+| **Enterprise Integration** | Basic API support | Comprehensive API & webhook ecosystem |
+| **Execution Control** | Limited visibility | Full execution tracing & analytics |
+
+### 🏢 Built for Enterprise
+
+EasyWorkflow is designed from the ground up with **enterprise requirements** in mind:
+
+- **🔒 Private Deployment**: Full control over your data and infrastructure
+- **⚡ High Performance**: Optimized for high-throughput workflow execution
+- **🔌 Easy Integration**: Simple LLM provider configuration without vendor lock-in
+- **📊 Full Observability**: Complete execution tracing and performance analytics
+- **🎛️ Flexible Scheduling**: Custom scheduling strategies that adapt to your business needs
 
 ---
 
@@ -21,41 +50,50 @@ A high-performance, enterprise-grade low-code workflow orchestration platform bu
 - RabbitMQ integration for async task processing
 - Reliable message delivery with retry mechanism
 - Queue monitoring and management
+- **Enterprise-grade reliability** for mission-critical workflows
 
 ### 🤖 LLM API Orchestration
-- Support for multiple LLM providers (OpenAI, Gemini, Azure, etc.)
-- Perfect for private deployment scenarios
+- Support for multiple LLM providers (OpenAI, Gemini, Azure, local models, etc.)
+- **Perfect for private deployment scenarios** - connect to your own LLM servers
 - Configurable rate limiting and concurrency control
+- **Simple configuration** - just add your API endpoint and key
+- Support for custom model endpoints (Ollama, vLLM, etc.)
 
 ### 📦 Release Management
 - Version control with deployment history
 - One-click rollback to previous versions
 - Workflow version comparison
+- **Production-ready deployment pipeline**
 
-### � Execution Statistics
+### 📊 Execution Statistics
 - Real-time execution monitoring
 - Success rate analytics and performance metrics
 - Detailed execution logs with step-by-step tracing
+- **Complete visibility** into workflow performance
 
 ### 🔑 API Key Management
 - **Global API Key**: System-wide access for integrations
 - **Workflow-specific API Key**: Fine-grained access control
 - Secure key generation and revocation
+- **Enterprise security standards**
 
 ### ✨ AI Node Generation
 - Convert API documentation/URL to HTTP request nodes automatically
 - cURL command parsing and node creation
 - Smart parameter detection and configuration
+- **Accelerate development** with intelligent automation
 
-### � EasyBot Chat
+### 💬 EasyBot Chat
 - Built-in AI chat assistant
 - Natural language workflow design assistance
 - Intelligent suggestions and automation
+- **Lower the learning curve** for new users
 
 ### 🌐 Internationalization
 - Chinese and English language support
 - Extensible i18n framework
 - Locale-aware date/time formatting
+- **Global team collaboration**
 
 ### 🔧 Rich Node Library
 
@@ -178,7 +216,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ---
 
-## � Contact
+## 📧 Contact
 
 For questions or feedback, please contact: **dadajiu45@gmail.com**
 
