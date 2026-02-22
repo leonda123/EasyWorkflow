@@ -1,0 +1,369 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// ----------------------------------------
+// Identity & Access Management (IAM)
+// ----------------------------------------
+
+enum UserRole {
+  USER
+  SUPER_ADMIN
+}
+
+model User {
+  id            String       @id @default(uuid())
+  email         String       @unique
+  passwordHash  String
+  name          String
+  avatarUrl     String?
+  role          UserRole     @default(USER)
+  isActive      Boolean      @default(true)
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  memberships   TeamMember[]
+  ownedTeams    Team[]       @relation("TeamOwner")
+  triggeredExecutions Execution[] 
+  notificationSettings NotificationSettings[]
+  llmConfigs    LlmConfig[]
+}
+
+model Team {
+  id            String       @id @default(uuid())
+  name          String
+  slug          String       @unique
+  avatarColor   String?
+  ownerId       String
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  owner         User         @relation("TeamOwner", fields: [ownerId], references: [id])
+  members       TeamMember[]
+  workflows     Workflow[]
+  apiKeys       ApiKey[]
+  oauthCredentials OAuthCredential[]
+  notificationSettings NotificationSettings[]
+  llmConfigs       LlmConfigTeam[]
+}
+
+enum MemberRole {
+  OWNER
+  ADMIN
+  EDITOR
+  VIEWER
+}
+
+model TeamMember {
+  id        String     @id @default(uuid())
+  userId    String
+  teamId    String
+  role      MemberRole @default(VIEWER)
+  joinedAt  DateTime   @default(now())
+
+  user      User       @relation(fields: [userId], references: [id])
+  team      Team       @relation(fields: [teamId], references: [id])
+
+  @@unique([userId, teamId])
+}
+
+// ----------------------------------------
+// Credentials & Secrets
+// ----------------------------------------
+
+model ApiKey {
+  id          String    @id @default(uuid())
+  teamId      String?
+  workflowId  String?
+  name        String
+  maskedKey   String
+  secretHash  String
+  status      String    @default("active")
+  keyType     String    @default("random")
+  isGlobal    Boolean   @default(false)
+  lastUsedAt  DateTime?
+  createdAt   DateTime  @default(now())
+
+  team        Team?     @relation(fields: [teamId], references: [id])
+  workflow    Workflow? @relation(fields: [workflowId], references: [id])
+
+  @@index([teamId, isGlobal])
+  @@index([workflowId])
+}
+
+model OAuthCredential {
+  id              String   @id @default(uuid())
+  teamId          String
+  providerName    String
+  clientId        String
+  encryptedSecret String
+  accessToken     String?
+  refreshToken    String?
+  expiresAt       DateTime?
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  team            Team     @relation(fields: [teamId], references: [id])
+}
+
+// ----------------------------------------
+// Workflow Definition
+// ----------------------------------------
+
+enum WorkflowStatus {
+  DRAFT
+  ACTIVE
+  INACTIVE
+}
+
+model Workflow {
+  id          String         @id @default(uuid())
+  teamId      String
+  name        String
+  description String?
+  status      WorkflowStatus @default(DRAFT)
+  
+  version     Float          @default(0.1)
+  versionStr  String         @default("0.1.0")
+
+  definition  Json
+  
+  runsCount   Int            @default(0)
+  successRate Float          @default(0)
+  
+  cronConfig  String?
+  
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  team        Team           @relation(fields: [teamId], references: [id])
+  versions    WorkflowVersion[]
+  executions  Execution[]
+  apiKeys     ApiKey[]
+}
+
+model WorkflowVersion {
+  id          String   @id @default(uuid())
+  workflowId  String
+  versionStr  String
+  definition  Json
+  description String?
+  authorName  String
+  createdAt   DateTime @default(now())
+
+  workflow    Workflow @relation(fields: [workflowId], references: [id])
+}
+
+// ----------------------------------------
+// Execution Engine (Logs)
+// ----------------------------------------
+
+enum ExecutionStatus {
+  RUNNING
+  SUCCESS
+  FAILED
+}
+
+enum TriggerType {
+  MANUAL
+  WEBHOOK
+  SCHEDULE
+  PARTIAL
+}
+
+model Execution {
+  id            String          @id @default(uuid())
+  workflowId    String
+  teamId        String
+  triggerUserId String?
+  
+  status        ExecutionStatus @default(RUNNING)
+  triggerType   TriggerType
+  
+  startTime     DateTime        @default(now())
+  endTime       DateTime?
+  duration      Int?
+  
+  inputData     Json?
+  outputData    Json?
+
+  workflow      Workflow        @relation(fields: [workflowId], references: [id])
+  user          User?           @relation(fields: [triggerUserId], references: [id])
+  steps         ExecutionStep[]
+}
+
+model ExecutionStep {
+  id            String    @id @default(uuid())
+  executionId   String
+  
+  nodeId        String
+  nodeLabel     String
+  nodeType      String
+  
+  status        String
+  startTime     DateTime  @default(now())
+  endTime       DateTime?
+  duration      Int?
+  
+  inputData     Json?
+  outputData    Json?
+  
+  logs          Json
+  
+  errorMessage  String?
+
+  execution     Execution @relation(fields: [executionId], references: [id])
+}
+
+// ----------------------------------------
+// LLM Configuration
+// ----------------------------------------
+
+model LlmConfig {
+  id            String   @id @default(uuid())
+  name          String
+  provider      String
+  baseUrl       String
+  apiKey        String
+  model         String
+  isActive      Boolean  @default(true)
+  isDefault     Boolean  @default(false)
+  maxTokens     Int      @default(4096)
+  temperature   Float    @default(0.7)
+  
+  maxConcurrency   Int      @default(5)
+  currentRunning   Int      @default(0)
+  queueEnabled     Boolean  @default(true)
+  
+  isGlobal      Boolean  @default(false)
+  creatorId     String?
+  
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  creator       User?        @relation(fields: [creatorId], references: [id])
+  teams         LlmConfigTeam[]
+}
+
+model LlmConfigTeam {
+  id          String   @id @default(uuid())
+  llmConfigId String
+  teamId      String
+  createdAt   DateTime @default(now())
+  
+  llmConfig   LlmConfig @relation(fields: [llmConfigId], references: [id], onDelete: Cascade)
+  team        Team      @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  
+  @@unique([llmConfigId, teamId])
+}
+
+// ----------------------------------------
+// Notification Settings
+// ----------------------------------------
+
+model NotificationSettings {
+  id              String   @id @default(uuid())
+  teamId          String
+  userId          String
+  
+  emailEnabled    Boolean  @default(false)
+  email           String?
+  
+  onFailure       Boolean  @default(true)
+  onSuccess       Boolean  @default(false)
+  
+  cooldownMinutes Int      @default(30)
+  lastNotifiedAt  DateTime?
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  team            Team     @relation(fields: [teamId], references: [id])
+  user            User     @relation(fields: [userId], references: [id])
+
+  @@unique([teamId, userId])
+}
+
+// ----------------------------------------
+// Message Queue Configuration
+// ----------------------------------------
+
+model MqConfig {
+  id          String   @id @default(uuid())
+  
+  host        String   @default("localhost")
+  port        Int      @default(5672)
+  username    String   @default("guest")
+  password    String
+  vhost       String   @default("/")
+  
+  enabled     Boolean  @default(true)
+  connected   Boolean  @default(false)
+  lastCheckAt DateTime?
+  
+  maxRetries      Int  @default(3)
+  retryDelay      Int  @default(5000)
+  prefetchCount   Int  @default(10)
+  messageTtl      Int  @default(86400000)
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  createdById String?
+  
+  @@map("mq_configs")
+}
+
+// ----------------------------------------
+// Email Configuration
+// ----------------------------------------
+
+model EmailConfig {
+  id          String   @id @default(uuid())
+  
+  host        String
+  port        Int      @default(587)
+  secure      Boolean  @default(false)
+  username    String
+  password    String
+  
+  fromEmail   String
+  fromName    String   @default("EasyWorkflow")
+  
+  enabled     Boolean  @default(false)
+  verified    Boolean  @default(false)
+  lastTestAt  DateTime?
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  createdById String?
+  
+  @@map("email_configs")
+}
+
+// ----------------------------------------
+// System Settings
+// ----------------------------------------
+
+model SystemSettings {
+  id                      String   @id @default("system")
+  
+  easyBotEnabled          Boolean  @default(true)
+  processNodeAiEnabled    Boolean  @default(true)
+  
+  easyBotLlmConfigId      String?
+  processNodeAiLlmConfigId String?
+  
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+  
+  @@map("system_settings")
+}

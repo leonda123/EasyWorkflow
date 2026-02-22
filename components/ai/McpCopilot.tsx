@@ -1,7 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Bot, Send, X, Sparkles, Loader2, RefreshCw, Zap, Maximize2, Minimize2 } from 'lucide-react';
-import { GoogleGenAI, Type } from '@google/genai';
+import { Bot, Send, X, Sparkles, Loader2, RefreshCw, Zap, Maximize2, Minimize2, AlertCircle, Lock } from 'lucide-react';
 import { useFlowStore } from '../../store/useFlowStore';
+import { useAppStore } from '../../store/useAppStore';
+import { api } from '../../lib/api';
 import { clsx } from 'clsx';
 import { NodeType, NodeStatus } from '../../types';
 
@@ -12,11 +13,21 @@ interface Message {
   timestamp: number;
 }
 
+interface AiSettings {
+  easyBotEnabled: boolean;
+  processNodeAiEnabled: boolean;
+  easyBotLlmConfigId: string | null;
+  processNodeAiLlmConfigId: string | null;
+}
+
 const McpCopilot = () => {
+  const { mcpEnabled } = useAppStore();
   const [isOpen, setIsOpen] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [llmAvailable, setLlmAvailable] = useState<boolean | null>(null);
+  const [aiSettings, setAiSettings] = useState<AiSettings | null>(null);
   const [messages, setMessages] = useState<Message[]>([
     {
       id: 'welcome',
@@ -37,6 +48,28 @@ const McpCopilot = () => {
     scrollToBottom();
   }, [messages, isOpen]);
 
+  useEffect(() => {
+    const checkSettings = async () => {
+      try {
+        const [settings, configs] = await Promise.all([
+          api.system.getAiSettings(),
+          api.llm.configs.list(),
+        ]);
+        setAiSettings(settings);
+        setLlmAvailable(configs.length > 0);
+      } catch {
+        setLlmAvailable(false);
+      }
+    };
+    checkSettings();
+  }, []);
+
+  if (!mcpEnabled) return null;
+
+  if (aiSettings && !aiSettings.easyBotEnabled) {
+    return null;
+  }
+
   const handleSend = async () => {
     if (!input.trim() || isLoading) return;
 
@@ -52,15 +85,12 @@ const McpCopilot = () => {
     setIsLoading(true);
 
     try {
-      // 1. Prepare Context (Current Graph State)
-      // Simplify data to save tokens: remove logs, large descriptions, UI state
       const graphContext = {
         nodes: nodes.map(n => ({
             id: n.id,
             type: n.data.type,
             label: n.data.label,
             position: n.position,
-            // Keep minimal config
             config: n.data.config
         })),
         edges: edges.map(e => ({
@@ -70,120 +100,114 @@ const McpCopilot = () => {
         }))
       };
 
-      // 2. System Prompt
-      const systemInstruction = `
-        You are an advanced MCP (Model Context Protocol) Agent capable of modifying workflow graphs.
+      const systemPrompt = `You are an advanced MCP (Model Context Protocol) Agent capable of modifying workflow graphs.
         
-        Current Workflow Context (JSON):
-        ${JSON.stringify(graphContext)}
+Current Workflow Context (JSON):
+${JSON.stringify(graphContext)}
 
-        Available Node Types:
-        - start (Trigger)
-        - api (HTTP Request)
-        - process (JS Code)
-        - condition (If/Else)
-        - llm (AI Model)
-        - delay (Wait/Sleep)
-        - db (Database Query)
-        - end (Response)
+Available Node Types:
+- start (Trigger)
+- api (HTTP Request)
+- process (JS Code)
+- condition (If/Else)
+- llm (AI Model)
+- delay (Wait/Sleep)
+- db (Database Query)
+- end (Response)
 
-        Task:
-        Based on the User's Request, generate a NEW JSON object containing updated 'nodes' and 'edges'.
-        
-        Rules:
-        1. PRESERVE existing node IDs and positions unless explicitly asked to reorganize or delete.
-        2. When adding new nodes, generate unique IDs (e.g., 'node-<timestamp>').
-        3. Determine intelligent positions (x, y) for new nodes so they don't overlap too much (e.g., add offset to previous node).
-        4. Maintain logical connections (edges).
-        5. Return ONLY the JSON object. No markdown blocks.
-        6. If the user asks for a complex modification, do your best to implement the logic.
-      `;
+Task:
+Based on the User's Request, generate a NEW JSON object containing updated 'nodes' and 'edges'.
 
-      const apiKey = process.env.API_KEY;
+Rules:
+1. PRESERVE existing node IDs and positions unless explicitly asked to reorganize or delete.
+2. When adding new nodes, generate unique IDs (e.g., 'node-<timestamp>').
+3. Determine intelligent positions (x, y) for new nodes so they don't overlap too much (e.g., add offset to previous node).
+4. Maintain logical connections (edges).
+5. Return ONLY the JSON object. No markdown blocks.
+6. If the user asks for a complex modification, do your best to implement the logic.`;
+
       let responseText = '';
       let newGraphData: any = null;
 
-      if (apiKey) {
-          const ai = new GoogleGenAI({ apiKey });
-          const response = await ai.models.generateContent({
-            model: 'gemini-3-flash-preview',
-            contents: userMsg.content,
-            config: {
-              systemInstruction: systemInstruction,
-              responseMimeType: "application/json",
-            }
-          });
-          responseText = response.text || '';
-          if (responseText) {
-            newGraphData = JSON.parse(responseText);
-          }
-      } else {
-          // --- MOCK LOGIC for Demo without API Key ---
-          await new Promise(r => setTimeout(r, 1500));
+      if (llmAvailable) {
+        try {
+          const response = await api.llm.chat(
+            [{ role: 'user', content: userMsg.content }],
+            { systemPrompt }
+          );
+          responseText = response.content;
           
-          // Simple heuristics for demo purposes
-          const lowerInput = userMsg.content.toLowerCase();
-          let mockNodes: any[] = [...graphContext.nodes];
-          let mockEdges: any[] = [...graphContext.edges];
-
-          if (lowerInput.includes('clear') || lowerInput.includes('delete all')) {
-             mockNodes = [];
-             mockEdges = [];
-             responseText = "已清空所有节点。";
-          } else if (lowerInput.includes('add') || lowerInput.includes('create')) {
-              // Add a generic node
-              const newNodeId = `node-${Date.now()}`;
-              const lastNode = mockNodes[mockNodes.length - 1];
-              const newPos = lastNode ? { x: lastNode.position.x + 250, y: lastNode.position.y } : { x: 100, y: 100 };
-              
-              let type: NodeType = NodeType.PROCESS;
-              let label = "New Node";
-              
-              if (lowerInput.includes('delay')) { type = NodeType.DELAY; label = "Delay"; }
-              else if (lowerInput.includes('db')) { type = NodeType.DB_QUERY; label = "Database"; }
-              else if (lowerInput.includes('llm') || lowerInput.includes('ai')) { type = NodeType.LLM; label = "AI Model"; }
-              else if (lowerInput.includes('api')) { type = NodeType.API_REQUEST; label = "HTTP Request"; }
-
-              mockNodes.push({
-                  id: newNodeId,
-                  type: 'custom', // React Flow type
-                  data: { type, label, status: NodeStatus.IDLE, config: {} }, // Our data type
-                  position: newPos
-              } as any);
-
-              // Connect to previous if exists
-              if (lastNode) {
-                  mockEdges.push({
-                      id: `e-${lastNode.id}-${newNodeId}`,
-                      source: lastNode.id,
-                      target: newNodeId,
-                      type: 'smoothstep',
-                      animated: true,
-                      style: { stroke: '#94a3b8', strokeWidth: 2 }
-                  });
-              }
-              responseText = `已添加 ${label} 节点并连接。`;
-          } else {
-              responseText = "这是演示模式。请输入 'add delay node' 或 'clear all' 来测试效果。（真实效果需配置 API Key）";
+          try {
+            newGraphData = JSON.parse(responseText);
+          } catch {
+            // Response is not JSON, treat as text response
           }
+        } catch (error: any) {
+          responseText = `调用 LLM 失败: ${error.message}`;
+        }
+      } else {
+        // Demo mode without LLM
+        await new Promise(r => setTimeout(r, 1500));
+        
+        const lowerInput = userMsg.content.toLowerCase();
+        let mockNodes: any[] = [...graphContext.nodes];
+        let mockEdges: any[] = [...graphContext.edges];
 
-          if (mockNodes.length !== graphContext.nodes.length || mockEdges.length !== graphContext.edges.length) {
-              newGraphData = { nodes: mockNodes, edges: mockEdges };
-          }
+        if (lowerInput.includes('clear') || lowerInput.includes('delete all') || lowerInput.includes('清空')) {
+           mockNodes = [];
+           mockEdges = [];
+           responseText = "已清空所有节点。";
+        } else if (lowerInput.includes('add') || lowerInput.includes('create') || lowerInput.includes('添加') || lowerInput.includes('增加')) {
+            const newNodeId = `node-${Date.now()}`;
+            const lastNode = mockNodes[mockNodes.length - 1];
+            const newPos = lastNode ? { x: lastNode.position.x + 250, y: lastNode.position.y } : { x: 100, y: 100 };
+            
+            let type: NodeType = NodeType.PROCESS;
+            let label = "New Node";
+            
+            if (lowerInput.includes('delay') || lowerInput.includes('延时')) { type = NodeType.DELAY; label = "Delay"; }
+            else if (lowerInput.includes('db') || lowerInput.includes('数据库')) { type = NodeType.DB_QUERY; label = "Database"; }
+            else if (lowerInput.includes('llm') || lowerInput.includes('ai') || lowerInput.includes('模型')) { type = NodeType.LLM; label = "AI Model"; }
+            else if (lowerInput.includes('api') || lowerInput.includes('http')) { type = NodeType.API_REQUEST; label = "HTTP Request"; }
+            else if (lowerInput.includes('condition') || lowerInput.includes('条件')) { type = NodeType.CONDITION; label = "Condition"; }
+            else if (lowerInput.includes('end') || lowerInput.includes('结束')) { type = NodeType.END; label = "End"; }
+
+            mockNodes.push({
+                id: newNodeId,
+                type: 'custom',
+                data: { type, label, status: NodeStatus.IDLE, config: {} },
+                position: newPos
+            } as any);
+
+            if (lastNode) {
+                mockEdges.push({
+                    id: `e-${lastNode.id}-${newNodeId}`,
+                    source: lastNode.id,
+                    target: newNodeId,
+                    type: 'smoothstep',
+                    animated: true,
+                    style: { stroke: '#94a3b8', strokeWidth: 2 }
+                });
+            }
+            responseText = `已添加 ${label} 节点并连接。`;
+        } else {
+            responseText = "这是演示模式。请输入 '添加延时节点' 或 '清空' 来测试效果。（真实效果需超级管理员配置 LLM）";
+        }
+
+        if (mockNodes.length !== graphContext.nodes.length || mockEdges.length !== graphContext.edges.length) {
+            newGraphData = { nodes: mockNodes, edges: mockEdges };
+        }
       }
 
-      // 3. Apply Changes
       if (newGraphData && newGraphData.nodes && newGraphData.edges) {
-          // Need to reconstruct full node objects (adding back UI-specific fields if lost, though store handles simple objects)
-          // Ensure structure matches WorkflowNode
           const reconstructedNodes = newGraphData.nodes.map((n: any) => ({
               ...n,
-              type: 'custom', // Force custom type for UI rendering
+              type: 'custom',
               data: {
-                  ...n.data, // Should contain label, type, config
-                  type: n.data?.type || n.type || 'process', // Fallback
+                  ...n.data,
+                  type: n.data?.type || n.type || 'process',
                   label: n.data?.label || n.label || 'Node',
-                  status: NodeStatus.IDLE, // Reset status
+                  status: NodeStatus.IDLE,
               }
           }));
 
@@ -224,7 +248,6 @@ const McpCopilot = () => {
     }
   };
 
-  // Minimized Floating Button
   if (!isOpen) {
     return (
       <button
@@ -246,15 +269,15 @@ const McpCopilot = () => {
         className={clsx(
             "absolute z-40 flex flex-col overflow-hidden bg-white shadow-2xl transition-all duration-300 ease-in-out border border-gray-200",
             isExpanded 
-                ? "top-4 right-4 bottom-20 left-1/2 rounded-xl" // Large mode
-                : "bottom-6 right-6 h-[500px] w-[380px] rounded-2xl" // Default mode
+                ? "top-4 right-4 bottom-20 left-1/2 rounded-xl"
+                : "bottom-6 right-6 h-[500px] w-[380px] rounded-2xl"
         )}
     >
       {/* Header */}
       <div className="flex items-center justify-between bg-gradient-to-r from-gray-900 to-gray-800 px-4 py-3 text-white">
         <div className="flex items-center gap-2">
             <Sparkles className="h-4 w-4 text-yellow-300" />
-            <h3 className="text-sm font-bold">MCP 智能助手 (Copilot)</h3>
+            <h3 className="text-sm font-bold">EasyBot</h3>
         </div>
         <div className="flex items-center gap-1">
              <button 
@@ -274,6 +297,15 @@ const McpCopilot = () => {
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto bg-gray-50 p-4 space-y-4">
+        {!llmAvailable && (
+          <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-800 flex items-start gap-2">
+            <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
+            <div>
+              <strong>演示模式</strong>
+              <p className="mt-1">LLM 未配置，当前为演示模式。请让超级管理员在设置页面配置 LLM。</p>
+            </div>
+          </div>
+        )}
         {messages.map((msg) => (
           <div
             key={msg.id}
@@ -301,7 +333,7 @@ const McpCopilot = () => {
             <div className="flex justify-start">
                 <div className="bg-white border border-gray-100 rounded-lg px-4 py-3 shadow-sm flex items-center gap-2 text-xs text-gray-500">
                     <Loader2 className="h-3 w-3 animate-spin text-blue-600" />
-                    正在思考并生成 JSON...
+                    正在思考...
                 </div>
             </div>
         )}
@@ -310,16 +342,15 @@ const McpCopilot = () => {
 
       {/* Input */}
       <div className="border-t border-gray-200 bg-white p-3">
-        {/* Suggestion Chips */}
         {messages.length < 3 && (
             <div className="flex gap-2 overflow-x-auto pb-2 mb-1 no-scrollbar">
-                <button onClick={() => setInput("Add a delay node after the last node")} className="whitespace-nowrap rounded-full bg-gray-100 px-3 py-1 text-[10px] text-gray-600 hover:bg-gray-200 border border-gray-200">
+                <button onClick={() => setInput("添加一个延时节点")} className="whitespace-nowrap rounded-full bg-gray-100 px-3 py-1 text-[10px] text-gray-600 hover:bg-gray-200 border border-gray-200">
                     + 增加延时节点
                 </button>
-                <button onClick={() => setInput("Connect a Database Query node to Start")} className="whitespace-nowrap rounded-full bg-gray-100 px-3 py-1 text-[10px] text-gray-600 hover:bg-gray-200 border border-gray-200">
+                <button onClick={() => setInput("连接一个数据库查询节点")} className="whitespace-nowrap rounded-full bg-gray-100 px-3 py-1 text-[10px] text-gray-600 hover:bg-gray-200 border border-gray-200">
                     + 连接数据库节点
                 </button>
-                <button onClick={() => setInput("Clear all nodes")} className="whitespace-nowrap rounded-full bg-gray-100 px-3 py-1 text-[10px] text-gray-600 hover:bg-gray-200 border border-gray-200">
+                <button onClick={() => setInput("清空所有节点")} className="whitespace-nowrap rounded-full bg-gray-100 px-3 py-1 text-[10px] text-gray-600 hover:bg-gray-200 border border-gray-200">
                     清空画布
                 </button>
             </div>
@@ -344,7 +375,7 @@ const McpCopilot = () => {
         </div>
         <div className="mt-1.5 text-[10px] text-center text-gray-400 flex items-center justify-center gap-1">
              <Zap className="h-3 w-3" />
-             Powered by Gemini 2.5 • MCP Protocol
+             {llmAvailable ? 'Powered by Configured LLM • MCP Protocol' : '演示模式 • 请配置 LLM'}
         </div>
       </div>
     </div>

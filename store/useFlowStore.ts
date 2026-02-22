@@ -9,12 +9,23 @@ import {
   MarkerType,
 } from '@xyflow/react';
 import { WorkflowNode, WorkflowEdge, NodeStatus, NodeType, TraceLog, ExecutionStepLog } from '../types';
+import { api } from '../lib/api';
+import type { 
+  ExecutionStartedEvent, 
+  NodeStartedEvent, 
+  NodeCompletedEvent, 
+  ExecutionCompletedEvent 
+} from '../hooks/useWorkflowSocket';
 
 interface FlowState {
   nodes: WorkflowNode[];
   edges: WorkflowEdge[];
   selectedNodeId: string | null;
   isRunning: boolean;
+  hasUnsavedChanges: boolean;
+  abortController: AbortController | null;
+  currentWorkflowId: string | null;
+  currentExecutionId: string | null;
   
   // Clipboard State
   copiedNodes: WorkflowNode[];
@@ -22,6 +33,8 @@ interface FlowState {
   // Trace / Console State
   traceLogs: TraceLog[];
   isTraceOpen: boolean;
+  tracePosition: 'bottom' | 'right';
+  traceWidth: number;
 
   // Actions
   onNodesChange: (changes: NodeChange<WorkflowNode>[]) => void;
@@ -34,7 +47,12 @@ interface FlowState {
   updateNodeData: (id: string, data: Partial<WorkflowNode['data']>) => void;
   updateNodeConfig: (id: string, config: Partial<WorkflowNode['data']['config']>) => void;
   setRunning: (isRunning: boolean) => void;
+  setAbortController: (controller: AbortController | null) => void;
+  setCurrentWorkflowId: (id: string | null) => void;
+  setCurrentExecutionId: (id: string | null) => void;
+  stopWorkflow: () => void;
   resetStatuses: () => void;
+  markAsSaved: () => void;
   
   // Clipboard Actions
   copySelection: () => void;
@@ -42,12 +60,23 @@ interface FlowState {
   pasteSelection: (position?: { x: number, y: number }) => void; // Allow pasting at specific pos
 
   // Execution Action (Moved from Header)
-  runWorkflow: (targetNodeId?: string) => Promise<{ success: boolean; steps: ExecutionStepLog[] }>;
+  runWorkflow: (input?: any, targetNodeId?: string, workflowId?: string, teamId?: string) => Promise<{ success: boolean; steps: ExecutionStepLog[]; executionId?: string }>;
+
+  // WebSocket Execution Handlers
+  handleExecutionStarted: (event: ExecutionStartedEvent) => void;
+  handleNodeStarted: (event: NodeStartedEvent) => void;
+  handleNodeCompleted: (event: NodeCompletedEvent) => void;
+  handleExecutionCompleted: (event: ExecutionCompletedEvent) => void;
+
+  // Validation Action
+  validateWorkflow: () => { valid: boolean; errors: string[] };
 
   // Trace Actions
   addTraceLog: (log: TraceLog) => void;
   clearTraceLogs: () => void;
   setTraceOpen: (isOpen: boolean) => void;
+  setTracePosition: (position: 'bottom' | 'right') => void;
+  setTraceWidth: (width: number) => void;
 }
 
 const initialNodes: WorkflowNode[] = [
@@ -75,8 +104,7 @@ const initialNodes: WorkflowNode[] = [
       status: NodeStatus.IDLE, 
       type: NodeType.PROCESS,
       config: {
-        code: `// Available variables: $, inputs\nif (!inputs.body.userId) {\n  throw new Error("Missing userId");\n}\nreturn { isValid: true, ts: Date.now() };`,
-        language: 'javascript'
+        code: `// Available variables: $, inputs\nif (!inputs.body.userId) {\n  throw new Error("Missing userId");\n}\nreturn { isValid: true, ts: Date.now() };`
       }
     },
   },
@@ -183,19 +211,27 @@ export const useFlowStore = create<FlowState>((set, get) => ({
   edges: initialEdges,
   selectedNodeId: null,
   isRunning: false,
+  abortController: null,
+  currentWorkflowId: null,
+  currentExecutionId: null,
+  hasUnsavedChanges: false,
   copiedNodes: [], // Clipboard
   traceLogs: [],
   isTraceOpen: false,
+  tracePosition: (localStorage.getItem('tracePosition') as 'bottom' | 'right') || 'bottom',
+  traceWidth: parseInt(localStorage.getItem('traceWidth') || '400', 10),
 
   onNodesChange: (changes) => {
     set({
       nodes: applyNodeChanges(changes, get().nodes),
+      hasUnsavedChanges: true,
     });
   },
 
   onEdgesChange: (changes) => {
     set({
       edges: applyEdgeChanges(changes, get().edges),
+      hasUnsavedChanges: true,
     });
   },
 
@@ -210,12 +246,14 @@ export const useFlowStore = create<FlowState>((set, get) => ({
     } as WorkflowEdge;
     set({
       edges: addEdge(edge, get().edges),
+      hasUnsavedChanges: true,
     });
   },
 
   addNode: (node) => {
     set((state) => ({
       nodes: [...state.nodes, node],
+      hasUnsavedChanges: true,
     }));
   },
 
@@ -223,12 +261,13 @@ export const useFlowStore = create<FlowState>((set, get) => ({
       set((state) => ({
           nodes: state.nodes.filter(n => n.id !== id),
           edges: state.edges.filter(e => e.source !== id && e.target !== id),
-          selectedNodeId: state.selectedNodeId === id ? null : state.selectedNodeId
+          selectedNodeId: state.selectedNodeId === id ? null : state.selectedNodeId,
+          hasUnsavedChanges: true,
       }));
   },
 
   setGraph: (nodes, edges) => {
-    set({ nodes, edges });
+    set({ nodes, edges, hasUnsavedChanges: true });
   },
 
   setSelectedNode: (id) => {
@@ -249,6 +288,7 @@ export const useFlowStore = create<FlowState>((set, get) => ({
         }
         return node;
       }),
+      hasUnsavedChanges: true,
     }));
   },
 
@@ -266,10 +306,32 @@ export const useFlowStore = create<FlowState>((set, get) => ({
         }
         return node;
       }),
+      hasUnsavedChanges: true,
     }));
   },
 
   setRunning: (isRunning) => set({ isRunning }),
+  setAbortController: (controller) => set({ abortController: controller }),
+  setCurrentWorkflowId: (id) => set({ currentWorkflowId: id }),
+  setCurrentExecutionId: (id) => set({ currentExecutionId: id }),
+  stopWorkflow: () => {
+    const { abortController, addTraceLog, currentWorkflowId } = get();
+    if (abortController) {
+      abortController.abort();
+      addTraceLog({
+        id: `trace-sys-stopped`,
+        nodeId: 'system',
+        nodeLabel: 'System',
+        type: NodeType.PROCESS,
+        status: 'error',
+        startTime: Date.now(),
+        message: '工作流执行已手动停止'
+      });
+    }
+    set({ isRunning: false, abortController: null });
+  },
+
+  markAsSaved: () => set({ hasUnsavedChanges: false }),
 
   resetStatuses: () => {
     set((state) => ({
@@ -353,262 +415,251 @@ export const useFlowStore = create<FlowState>((set, get) => ({
       }
   },
 
-  runWorkflow: async (targetNodeId?: string) => {
-      const { nodes, edges, updateNodeData, resetStatuses, addTraceLog, clearTraceLogs, setRunning, setTraceOpen } = get();
+  runWorkflow: async (input?: any, targetNodeId?: string, workflowId?: string, teamId?: string) => {
+      const { nodes, updateNodeData, resetStatuses, addTraceLog, clearTraceLogs, setRunning, setTraceOpen, setCurrentWorkflowId, setCurrentExecutionId } = get();
       
       if (get().isRunning) return { success: false, steps: [] };
 
+      if (!workflowId) {
+        addTraceLog({
+          id: `trace-sys-error`,
+          nodeId: 'system',
+          nodeLabel: 'System',
+          type: NodeType.PROCESS,
+          status: 'error',
+          startTime: Date.now(),
+          message: '错误: 工作流 ID 为空，请先保存工作流'
+        });
+        return { success: false, steps: [] };
+      }
+
+      if (!teamId) {
+        addTraceLog({
+          id: `trace-sys-error`,
+          nodeId: 'system',
+          nodeLabel: 'System',
+          type: NodeType.PROCESS,
+          status: 'error',
+          startTime: Date.now(),
+          message: '错误: 团队 ID 为空，请选择团队'
+        });
+        return { success: false, steps: [] };
+      }
+
       setRunning(true);
+      setCurrentWorkflowId(workflowId);
       resetStatuses();
       clearTraceLogs();
       setTraceOpen(true);
 
-      const startTime = Date.now();
-      let hasCriticalError = false;
-      const executionSteps: ExecutionStepLog[] = [];
+      try {
+        const result = await api.workflows.run(
+          teamId,
+          workflowId,
+          input,
+          targetNodeId
+        );
+        
+        if (get().currentWorkflowId !== workflowId) {
+          setRunning(false);
+          return { success: false, steps: [] };
+        }
 
-      // --- 0. Calculate Nodes to Run (Partial Run Logic) ---
-      let allowedNodes = new Set<string>();
-      if (targetNodeId) {
-          const ancestors = getAncestors(targetNodeId, edges);
-          allowedNodes = ancestors;
-          allowedNodes.add(targetNodeId);
-          
-          addTraceLog({
-              id: `trace-sys-init`,
-              nodeId: 'system',
-              nodeLabel: 'System',
-              type: NodeType.PROCESS,
-              status: 'success',
-              startTime: Date.now(),
-              message: `分段运行模式：将只执行 ${allowedNodes.size} 个节点。`
-          });
+        setCurrentExecutionId(result.executionId);
+
+        addTraceLog({
+            id: `trace-sys-started-${Date.now()}`,
+            nodeId: 'system',
+            nodeLabel: 'System',
+            type: NodeType.PROCESS,
+            status: 'success',
+            startTime: Date.now(),
+            message: `执行已启动 (ID: ${result.executionId.slice(0, 8)}...)`
+        });
+
+        return { 
+          success: result.status === 'SUCCESS', 
+          steps: result.steps || [], 
+          executionId: result.executionId,
+          output: result.output
+        };
+
+      } catch (error: any) {
+        const errorMessage = error?.message || error?.toString() || '未知错误';
+        
+        addTraceLog({
+            id: `trace-sys-error-${Date.now()}`,
+            nodeId: 'system',
+            nodeLabel: 'System',
+            type: NodeType.PROCESS,
+            status: 'error',
+            startTime: Date.now(),
+            message: `启动失败: ${errorMessage}`
+        });
+        
+        setRunning(false);
+        return { success: false, steps: [] };
       }
+  },
 
-      // --- 1. Build Graph Dependencies ---
-      const adjacency = new Map<string, string[]>(); 
-      const inDegree = new Map<string, number>();
+  handleExecutionStarted: (event: ExecutionStartedEvent) => {
+    const { setCurrentExecutionId } = get();
+    setCurrentExecutionId(event.executionId);
+  },
 
+  handleNodeStarted: (event: NodeStartedEvent) => {
+    const { updateNodeData } = get();
+    updateNodeData(event.nodeId, { 
+      status: NodeStatus.RUNNING 
+    });
+  },
+
+  handleNodeCompleted: (event: NodeCompletedEvent) => {
+    const { updateNodeData, addTraceLog, nodes } = get();
+    updateNodeData(event.nodeId, { 
+      status: event.status === 'success' ? NodeStatus.SUCCESS : NodeStatus.ERROR,
+      duration: event.duration,
+      logs: event.logs
+    });
+    
+    const logId = `trace-${event.nodeId}-${Date.now()}`;
+    const node = nodes.find(n => n.id === event.nodeId);
+    addTraceLog({
+      id: logId,
+      nodeId: event.nodeId,
+      nodeLabel: event.nodeLabel || node?.data?.label || 'Unknown',
+      type: node?.data?.type as any || NodeType.PROCESS,
+      status: event.status === 'success' ? 'success' : 'error',
+      startTime: Date.now(),
+      duration: event.duration,
+      message: event.status === 'success' 
+        ? `执行成功 (${event.duration}ms)` 
+        : `执行失败: ${event.error || '未知错误'}`,
+      output: event.output,
+      logs: event.logs
+    });
+  },
+
+  handleExecutionCompleted: (event: ExecutionCompletedEvent) => {
+    const { addTraceLog, setRunning, setCurrentExecutionId, traceLogs } = get();
+    setRunning(false);
+    setCurrentExecutionId(null);
+    
+    const logId = `trace-sys-done-${Date.now()}`;
+    if (event.status === 'SUCCESS') {
+      addTraceLog({
+        id: logId,
+        nodeId: 'system',
+        nodeLabel: 'System',
+        type: NodeType.PROCESS,
+        status: 'success',
+        startTime: Date.now(),
+        duration: event.duration,
+        message: `工作流执行完成，耗时 ${event.duration}ms`
+      });
+    } else {
+      addTraceLog({
+        id: `trace-sys-error-${Date.now()}`,
+        nodeId: 'system',
+        nodeLabel: 'System',
+        type: NodeType.PROCESS,
+        status: 'error',
+        startTime: Date.now(),
+        message: `执行失败: ${event.error || '未知错误'}`
+      });
+    }
+  },
+
+  validateWorkflow: () => {
+      const { nodes, edges } = get();
+      const errors: string[] = [];
+      
+      if (nodes.length === 0) {
+        errors.push('工作流为空，请添加节点');
+        return { valid: false, errors };
+      }
+      
+      const startNodes = nodes.filter(n => n.data.type === NodeType.START);
+      if (startNodes.length === 0) {
+        errors.push('缺少触发器节点 (Start)');
+      }
+      
+      const endNodes = nodes.filter(n => n.data.type === NodeType.END);
+      if (endNodes.length === 0) {
+        errors.push('缺少结束节点 (End)');
+      }
+      
+      const connectedNodeIds = new Set<string>();
+      edges.forEach(e => {
+        connectedNodeIds.add(e.source);
+        connectedNodeIds.add(e.target);
+      });
+      
+      const orphanNodes = nodes.filter(n => !connectedNodeIds.has(n.id) && nodes.length > 1);
+      if (orphanNodes.length > 0) {
+        errors.push(`存在 ${orphanNodes.length} 个未连接的节点: ${orphanNodes.map(n => n.data.label).join(', ')}`);
+      }
+      
+      startNodes.forEach(node => {
+        const hasOutgoingEdge = edges.some(e => e.source === node.id);
+        if (!hasOutgoingEdge && nodes.length > 1) {
+          errors.push(`触发器节点 "${node.data.label}" 没有连接到任何节点`);
+        }
+      });
+      
+      endNodes.forEach(node => {
+        const hasIncomingEdge = edges.some(e => e.target === node.id);
+        if (!hasIncomingEdge && nodes.length > 1) {
+          errors.push(`结束节点 "${node.data.label}" 没有任何输入连接`);
+        }
+      });
+      
       nodes.forEach(node => {
-          adjacency.set(node.id, []);
-          inDegree.set(node.id, 0);
-      });
-
-      edges.forEach(edge => {
-          const children = adjacency.get(edge.source) || [];
-          children.push(edge.target);
-          adjacency.set(edge.source, children);
-
-          const currentInDegree = inDegree.get(edge.target) || 0;
-          inDegree.set(edge.target, currentInDegree + 1);
-      });
-
-      // --- 2. Identify Start Nodes ---
-      let readyQueue: WorkflowNode[] = nodes.filter(node => (inDegree.get(node.id) || 0) === 0);
-      if (readyQueue.length === 0) {
-          readyQueue = nodes.filter(n => n.data.type === 'start');
-      }
-
-      // --- 3. Execution Loop ---
-      while (readyQueue.length > 0) {
-          if (hasCriticalError) break;
-
-          const currentBatch = [...readyQueue];
-          readyQueue = []; 
+        if (node.data.type === NodeType.API_REQUEST) {
+          if (!node.data.config?.url) {
+            errors.push(`API 节点 "${node.data.label}" 缺少 URL 配置`);
+          }
+        }
+        if (node.data.type === NodeType.LLM) {
+          const llmConfig = node.data.config?.llmConfig;
+          const useServerConfig = llmConfig?.useServerConfig !== false;
           
-          const nextLevelCandidates = new Set<string>();
-
-          await Promise.all(currentBatch.map(async (node) => {
-               if (hasCriticalError) return;
-
-               // **PARTIAL RUN CHECK**
-               if (targetNodeId && !allowedNodes.has(node.id)) {
-                   return;
-               }
-
-               const stepStartTime = Date.now();
-               updateNodeData(node.id, { status: NodeStatus.RUNNING, lastRun: new Date().toISOString() });
-               
-               addTraceLog({
-                  id: `trace-${node.id}-start`,
-                  nodeId: node.id,
-                  nodeLabel: node.data.label,
-                  type: node.data.type,
-                  status: 'running',
-                  startTime: stepStartTime,
-                  message: '开始执行...'
-               });
-
-               let logs: string[] = [];
-
-               // --- Node Logic Simulation (Copied from Header) ---
-               if (node.data.type === NodeType.LLM) {
-                   const config = node.data.config.llmConfig;
-                   const sysPrompt = replaceVariables(config?.systemPrompt || '', get().nodes);
-                   
-                   addTraceLog({
-                      id: `trace-${node.id}-llm-prompt`,
-                      nodeId: node.id,
-                      nodeLabel: node.data.label,
-                      type: node.data.type,
-                      status: 'running',
-                      startTime: Date.now(),
-                      message: `Sending prompt to ${config?.provider || 'OpenAI'}...`
-                   });
-                   await new Promise(r => setTimeout(r, 1500));
-                   logs = [
-                       `[INFO] Provider: ${config?.provider || 'openai'}`,
-                       `[INFO] Model: ${config?.model || 'gpt-3.5-turbo'}`,
-                       `[SUCCESS] AI Response received.`
-                   ];
-               } else if (node.data.type === NodeType.DELAY) {
-                   const dConfig = node.data.config.delayConfig || { duration: 1, unit: 'seconds' };
-                   let ms = dConfig.duration;
-                   if (dConfig.unit === 'seconds') ms *= 1000;
-                   if (dConfig.unit === 'minutes') ms *= 60000;
-                   
-                   addTraceLog({
-                      id: `trace-${node.id}-delay-start`,
-                      nodeId: node.id,
-                      nodeLabel: node.data.label,
-                      type: node.data.type,
-                      status: 'running',
-                      startTime: Date.now(),
-                      message: `Waiting for ${dConfig.duration} ${dConfig.unit}...`
-                   });
-                   await new Promise(r => setTimeout(r, ms));
-                   logs = [`[INFO] Sleep finished (${ms}ms).`];
-               } else if (node.data.type === NodeType.DB_QUERY) {
-                   const dbConfig = node.data.config.dbConfig;
-                   const query = replaceVariables(dbConfig?.query || '', get().nodes);
-                   addTraceLog({
-                      id: `trace-${node.id}-db-query`,
-                      nodeId: node.id,
-                      nodeLabel: node.data.label,
-                      type: node.data.type,
-                      status: 'running',
-                      startTime: Date.now(),
-                      message: `Executing SQL: ${query.substring(0, 30)}...`
-                   });
-                   await new Promise(r => setTimeout(r, 1000)); 
-                   logs = [
-                       `[INFO] Connecting to ${dbConfig?.type || 'postgres'}...`,
-                       `[SUCCESS] 5 rows affected.`
-                   ];
-               } else if (node.data.type === NodeType.API_REQUEST) {
-                   logs.push(`[INFO] Preparing request...`);
-                   if (node.data.config.preRequestScript) {
-                       logs.push(`[SCRIPT] Executing pre-request script...`);
-                       await new Promise(r => setTimeout(r, 100)); 
-                   }
-                   if (node.data.config.authType === 'oauth2') {
-                       logs.push(`[AUTH] Fetching OAuth2 token...`);
-                       await new Promise(r => setTimeout(r, 500)); 
-                       logs.push(`[AUTH] Token acquired.`);
-                   }
-                   await new Promise(r => setTimeout(r, 1000));
-                   logs.push(`[INFO] Response status: 200 OK`);
-                   if (node.data.config.testScript) {
-                       logs.push(`[SCRIPT] Executing test script...`);
-                       await new Promise(r => setTimeout(r, 100)); 
-                       logs.push(`[TEST] Assertions passed.`);
-                   }
-                   logs.push(`[SUCCESS] Request completed.`);
-               } else if (node.data.type === NodeType.PROCESS) {
-                   // Process Node Logic (Updated for Python)
-                   const language = node.data.config.language || 'javascript';
-                   
-                   if (language === 'python') {
-                       addTraceLog({
-                          id: `trace-${node.id}-process-py`,
-                          nodeId: node.id,
-                          nodeLabel: node.data.label,
-                          type: node.data.type,
-                          status: 'running',
-                          startTime: Date.now(),
-                          message: `Initializing Python 3.10 sandbox...`
-                       });
-                       await new Promise(r => setTimeout(r, 1200));
-                       logs = [
-                           `[INFO] Environment: Python 3.10 (WASM)`,
-                           `[INFO] Loading script...`,
-                           `[INFO] Processing inputs...`,
-                           `[SUCCESS] Execution finished.`
-                       ];
-                   } else {
-                       // JS
-                       await new Promise(r => setTimeout(r, 800));
-                       logs = [`[INFO] Environment: Node.js (V8)`, `[INFO] Executing business logic...`, `[SUCCESS] Done.`];
-                   }
-               } else {
-                   await new Promise(r => setTimeout(r, 800));
-                   logs = [`[INFO] 执行业务逻辑...`, `[SUCCESS] 完成.`];
-               }
-
-               const isSuccess = Math.random() > 0.05; 
-               const duration = Math.floor(Date.now() - stepStartTime);
-               
-               if (!isSuccess) {
-                   logs.push(`[ERROR] 发生未知错误.`);
-                   hasCriticalError = true;
-               }
-
-               updateNodeData(node.id, { 
-                  status: isSuccess ? NodeStatus.SUCCESS : NodeStatus.ERROR,
-                  duration: duration,
-                  logs: logs
-               });
-
-               executionSteps.push({
-                  nodeId: node.id,
-                  nodeLabel: node.data.label,
-                  status: isSuccess ? 'success' : 'failed',
-                  duration: duration,
-                  logs: logs
-               });
-
-               addTraceLog({
-                  id: `trace-${node.id}-end`,
-                  nodeId: node.id,
-                  nodeLabel: node.data.label,
-                  type: node.data.type,
-                  status: isSuccess ? 'success' : 'error',
-                  startTime: Date.now(),
-                  duration: duration,
-                  message: isSuccess ? '执行成功。' : '执行异常，流程终止。'
-               });
-
-               if (isSuccess) {
-                   // If this was the target node, we stop propagating to children
-                   if (targetNodeId && node.id === targetNodeId) {
-                        return;
-                   }
-
-                   const children = adjacency.get(node.id) || [];
-                   children.forEach(childId => {
-                       const currentDegree = inDegree.get(childId)!;
-                       const newDegree = currentDegree - 1;
-                       inDegree.set(childId, newDegree);
-                       
-                       if (newDegree === 0) {
-                           nextLevelCandidates.add(childId);
-                       }
-                   });
-               }
-          }));
-
-          const nextNodes = Array.from(nextLevelCandidates)
-              .map(id => nodes.find(n => n.id === id))
-              .filter((n): n is WorkflowNode => !!n);
-              
-          readyQueue = nextNodes;
-      }
-
-      setRunning(false);
-      return { success: !hasCriticalError, steps: executionSteps };
+          if (useServerConfig) {
+            if (!llmConfig?.configId) {
+              errors.push(`LLM 节点 "${node.data.label}" 未选择服务端配置`);
+            }
+          } else {
+            if (!llmConfig?.apiKey || !llmConfig?.model || !llmConfig?.baseUrl) {
+              errors.push(`LLM 节点 "${node.data.label}" 自定义配置不完整`);
+            }
+          }
+        }
+        if (node.data.type === NodeType.DB_QUERY) {
+          const dbConfig = node.data.config?.dbConfig;
+          if (dbConfig?.useConnectionString) {
+            if (!dbConfig.connectionString) {
+              errors.push(`数据库节点 "${node.data.label}" 缺少连接字符串`);
+            }
+          } else {
+            if (!dbConfig?.host || !dbConfig?.database || !dbConfig?.username) {
+              errors.push(`数据库节点 "${node.data.label}" 连接配置不完整`);
+            }
+          }
+        }
+      });
+      
+      return { valid: errors.length === 0, errors };
   },
 
   addTraceLog: (log) => set((state) => ({ traceLogs: [...state.traceLogs, log] })),
   clearTraceLogs: () => set({ traceLogs: [] }),
   setTraceOpen: (isOpen) => set({ isTraceOpen: isOpen }),
+  setTracePosition: (position) => {
+    localStorage.setItem('tracePosition', position);
+    set({ tracePosition: position });
+  },
+  setTraceWidth: (width) => {
+    localStorage.setItem('traceWidth', width.toString());
+    set({ traceWidth: width });
+  },
 }));

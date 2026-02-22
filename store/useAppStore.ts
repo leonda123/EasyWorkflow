@@ -1,419 +1,756 @@
 import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
 import { WorkflowMetadata, ExecutionLog, DashboardTab, SavedNodeTemplate, NodeData, WorkflowVersionHistory, Team, User, Language, ApiKey } from '../types';
+import { api, setAuthToken, getAuthToken } from '../lib/api';
 
 interface AppState {
-  currentView: 'dashboard' | 'editor';
   dashboardTab: DashboardTab;
-  activeWorkflowId: string | null;
   
-  // Auth State
   isAuthenticated: boolean;
-  
-  // Settings
+  isAuthLoading: boolean;
   language: Language;
+  mcpEnabled: boolean;
 
-  // Team Management State
-  currentUser: User;
-  currentTeam: Team;
+  currentUser: User | null;
+  currentTeam: Team | null;
   teams: Team[];
-  teamMembers: User[]; // List of members in current team
+  teamMembers: User[];
   
   workflows: WorkflowMetadata[];
   executions: ExecutionLog[];
-  savedNodes: SavedNodeTemplate[]; // Favorites list
-  apiKeys: ApiKey[]; // Global API Keys
+  savedNodes: SavedNodeTemplate[];
+  apiKeys: ApiKey[];
   
-  // Actions
-  login: (email: string) => void;
+  loading: boolean;
+  error: string | null;
+  
+  login: (email: string, password: string) => Promise<boolean>;
+  register: (email: string, name: string, password: string) => Promise<boolean>;
   logout: () => void;
+  checkAuth: () => Promise<void>;
   setLanguage: (lang: Language) => void;
-  switchTeam: (teamId: string) => void;
-  createTeam: (name: string, slug: string) => void;
-  inviteMember: (email: string, role: User['role']) => void;
-  removeMember: (userId: string) => void;
+  setMcpEnabled: (enabled: boolean) => void;
   
-  navigateToEditor: (id: string) => void;
-  navigateToDashboard: () => void;
+  loadTeams: () => Promise<void>;
+  switchTeam: (teamId: string) => Promise<void>;
+  createTeam: (name: string, slug: string) => Promise<void>;
+  loadTeamMembers: (teamId: string) => Promise<void>;
+  inviteMember: (email: string, role: User['role']) => Promise<void>;
+  removeMember: (userId: string) => Promise<void>;
+  
   setDashboardTab: (tab: DashboardTab) => void;
-  createWorkflow: () => void;
-  deleteWorkflow: (id: string) => void;
-  importWorkflow: (data: WorkflowMetadata) => void;
-  deployWorkflow: (id: string, version: string, description: string) => void;
-  generateWorkflowApiKey: (id: string) => void;
+  
+  loadWorkflows: () => Promise<void>;
+  loadWorkflow: (teamId: string, workflowId: string) => Promise<WorkflowMetadata | undefined>;
+  createWorkflow: (name: string, description?: string) => Promise<string | undefined>;
+  updateWorkflow: (teamId: string, workflowId: string, data: { name?: string; description?: string; definition?: any }) => Promise<void>;
+  deleteWorkflow: (id: string) => Promise<void>;
+  importWorkflow: (data: WorkflowMetadata) => Promise<void>;
+  deployWorkflow: (id: string, version: string, description: string) => Promise<void>;
+  rollbackWorkflow: (teamId: string, workflowId: string, version: string) => Promise<any>;
+  generateWorkflowApiKey: (id: string) => Promise<void>;
   addExecution: (exec: ExecutionLog) => void;
   
-  // API Key Actions
-  generateGlobalApiKey: (name: string) => void;
-  revokeGlobalApiKey: (id: string) => void;
+  loadExecutions: () => Promise<void>;
   
-  // Saved Node Actions
+  generateGlobalApiKey: (name: string) => Promise<void>;
+  revokeGlobalApiKey: (id: string) => Promise<void>;
+  loadApiKeys: () => Promise<void>;
+  
   saveNodeTemplate: (nodeData: NodeData, name: string, tags: string[]) => void;
   updateSavedNode: (id: string, updates: Partial<SavedNodeTemplate>) => void;
   deleteSavedNode: (id: string) => void;
 }
 
-// Mock Teams
-const mockTeams: Team[] = [
-    { id: 't1', name: 'Engineering', slug: 'eng', avatar: 'bg-blue-600', membersCount: 3 },
-    { id: 't2', name: 'Marketing', slug: 'mkt', avatar: 'bg-purple-600', membersCount: 5 },
-    { id: 't3', name: 'Operations', slug: 'ops', avatar: 'bg-orange-600', membersCount: 8 }
+const mockSavedNodes: SavedNodeTemplate[] = [
+  {
+    id: 'tpl-1',
+    name: '钉钉通知机器人',
+    tags: ['通知', 'IM'],
+    createdAt: '2023-10-20',
+    nodeType: 'api' as any,
+    data: {
+      label: '发送钉钉消息',
+      description: '通过 Webhook 发送群消息',
+      type: 'api' as any,
+      status: 'idle' as any,
+      config: {
+        method: 'POST',
+        url: 'https://oapi.dingtalk.com/robot/send?access_token=...',
+        headers: [{ id: '1', key: 'Content-Type', value: 'application/json' }],
+        body: '{\n "msgtype": "text",\n "text": {\n  "content": "Hello"\n }\n}'
+      }
+    }
+  }
 ];
 
-const mockUser: User = {
-    id: 'u1',
-    name: 'Admin User',
-    email: 'admin@easyflow.com',
-    role: 'owner',
-    avatar: undefined
+const getInitialMcpEnabled = (): boolean => {
+  if (typeof window === 'undefined') return true;
+  try {
+    const saved = localStorage.getItem('mcpEnabled');
+    return saved === null ? true : saved === 'true';
+  } catch {
+    return true;
+  }
 };
 
-// Mock Members for initial team
-const mockMembers: User[] = [
-    mockUser,
-    { id: 'u2', name: 'John Smith', email: 'john@easyflow.com', role: 'editor', avatar: undefined },
-    { id: 'u3', name: 'Alice Li', email: 'alice@easyflow.com', role: 'viewer', avatar: undefined }
-];
+const getInitialSavedNodes = (): SavedNodeTemplate[] => {
+  return [];
+};
 
-const mockHistory: WorkflowVersionHistory[] = [
-    { version: '1.0.0', date: '2023-10-25 10:00', author: 'Admin', description: 'Initial Release' },
-    { version: '1.1.0', date: '2023-10-26 14:30', author: 'Admin', description: 'Added Webhook Trigger' }
-];
-
-const mockWorkflows: WorkflowMetadata[] = [
-  {
-    id: 'wf-1',
-    teamId: 't1', // Engineering
-    name: '用户注册流程',
-    description: '处理新用户注册，发送欢迎邮件，并同步到 CRM 系统。',
-    status: 'active',
-    updatedAt: '2 分钟前',
-    nodesCount: 5,
-    successRate: 98.5,
-    runs: 1240,
-    version: 1.2,
-    versionStr: '1.2.0',
-    apiKey: 'wf_key_live_7382...',
-    history: mockHistory
-  },
-  {
-    id: 'wf-2',
-    teamId: 't2', // Marketing
-    name: '周报自动生成器',
-    description: '从数据库拉取数据，生成 PDF，并推送到钉钉群。',
-    status: 'inactive',
-    updatedAt: '3 天前',
-    nodesCount: 8,
-    successRate: 92.0,
-    runs: 45,
-    version: 2.0,
-    versionStr: '2.0.0',
-    history: []
-  },
-  {
-    id: 'wf-3',
-    teamId: 't1', // Engineering
-    name: '支付回调处理',
-    description: '处理 Stripe Webhooks 更新订单状态。',
-    status: 'active',
-    updatedAt: '1 小时前',
-    nodesCount: 4,
-    successRate: 99.9,
-    runs: 8500,
-    version: 3.5,
-    versionStr: '3.5.1',
-    apiKey: 'wf_key_live_9921...',
-    history: []
-  },
-];
-
-const mockStepLogs = [
-    { nodeId: 'n1', nodeLabel: 'Start', status: 'success' as const, duration: 10, logs: ['Received Webhook', 'Parsing Payload...'] },
-    { nodeId: 'n2', nodeLabel: 'Process Data', status: 'success' as const, duration: 150, logs: ['Validating Schema...', 'Transforming Data...'] },
-    { nodeId: 'n3', nodeLabel: 'Save DB', status: 'success' as const, duration: 240, logs: ['Connecting to PostgreSQL...', 'Insert Success'] },
-];
-
-const mockExecutions: ExecutionLog[] = [
-  { id: 'ex-1', workflowId: 'wf-1', workflowName: '用户注册流程', status: 'success', startTime: '2023-10-27 10:30:00', duration: 450, trigger: 'webhook', steps: mockStepLogs },
-  { id: 'ex-2', workflowId: 'wf-1', workflowName: '用户注册流程', status: 'success', startTime: '2023-10-27 10:25:00', duration: 320, trigger: 'webhook', steps: mockStepLogs },
-  { id: 'ex-3', workflowId: 'wf-3', workflowName: '支付回调处理', status: 'failed', startTime: '2023-10-27 09:15:00', duration: 120, trigger: 'webhook', steps: [
-      { nodeId: 'n1', nodeLabel: 'Start', status: 'success' as const, duration: 10, logs: ['Received Event'] },
-      { nodeId: 'n2', nodeLabel: 'Verify Signature', status: 'failed' as const, duration: 110, logs: ['Error: Invalid Signature'] }
-  ] },
-  { id: 'ex-4', workflowId: 'wf-2', workflowName: '周报自动生成器', status: 'success', startTime: '2023-10-26 18:00:00', duration: 1500, trigger: 'schedule', steps: mockStepLogs },
-  { id: 'ex-5', workflowId: 'wf-1', workflowName: '用户注册流程', status: 'success', startTime: '2023-10-26 14:20:00', duration: 410, trigger: 'manual', steps: mockStepLogs },
-];
-
-const mockApiKeys: ApiKey[] = [
-    {
-        id: 'k1',
-        name: 'Default Production Key',
-        key: 'sk_live_master_29dk394k203k20k3',
-        status: 'active',
-        createdAt: '2023-01-15',
-        lastUsed: '刚刚'
-    },
-    {
-        id: 'k2',
-        name: 'CI/CD Pipeline',
-        key: 'sk_live_ci_998234823423423',
-        status: 'revoked',
-        createdAt: '2023-05-10',
-        lastUsed: '2023-06-01'
-    }
-];
-
-// Mock saved nodes
-const mockSavedNodes: SavedNodeTemplate[] = [
-    {
-        id: 'tpl-1',
-        name: '钉钉通知机器人',
-        tags: ['通知', 'IM'],
-        createdAt: '2023-10-20',
-        nodeType: 'api' as any,
-        data: {
-            label: '发送钉钉消息',
-            description: '通过 Webhook 发送群消息',
-            type: 'api' as any,
-            status: 'idle' as any,
-            config: {
-                method: 'POST',
-                url: 'https://oapi.dingtalk.com/robot/send?access_token=...',
-                headers: [{ id: '1', key: 'Content-Type', value: 'application/json' }],
-                body: '{\n "msgtype": "text",\n "text": {\n  "content": "Hello"\n }\n}'
-            }
-        }
-    }
-];
-
-export const useAppStore = create<AppState>((set, get) => ({
-  currentView: 'dashboard',
+export const useAppStore = create<AppState>()(
+  persist(
+    (set, get) => ({
   dashboardTab: 'workflows',
-  activeWorkflowId: null,
-  isAuthenticated: false, // Default to false
-  language: 'zh', // Default language
+  isAuthenticated: false,
+  isAuthLoading: true,
+  language: 'zh',
+  mcpEnabled: getInitialMcpEnabled(),
   
-  currentUser: mockUser,
-  currentTeam: mockTeams[0],
-  teams: mockTeams,
-  teamMembers: mockMembers,
+  currentUser: null,
+  currentTeam: null,
+  teams: [],
+  teamMembers: [],
   
-  workflows: mockWorkflows,
-  executions: mockExecutions,
-  savedNodes: mockSavedNodes,
-  apiKeys: mockApiKeys,
+  workflows: [],
+  executions: [],
+  savedNodes: getInitialSavedNodes(),
+  apiKeys: [],
+  
+  loading: false,
+  error: null,
 
-  login: (email: string) => {
-      // Simulate login
-      const name = email.split('@')[0];
-      const capitalized = name.charAt(0).toUpperCase() + name.slice(1);
-      
-      set({ 
-          isAuthenticated: true,
-          currentUser: { ...mockUser, email, name: capitalized }
+  checkAuth: async () => {
+    const token = getAuthToken();
+    if (!token) {
+      set({ isAuthenticated: false, currentUser: null, isAuthLoading: false });
+      return;
+    }
+
+    try {
+      const user = await api.auth.me();
+      set({
+        isAuthenticated: true,
+        isAuthLoading: false,
+        currentUser: {
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          avatar: user.avatarUrl,
+          role: 'owner',
+          systemRole: user.role,
+        },
       });
+      
+      await get().loadTeams();
+    } catch {
+      setAuthToken(null);
+      set({ isAuthenticated: false, currentUser: null, isAuthLoading: false });
+    }
+  },
+
+  login: async (email: string, password: string) => {
+    try {
+      set({ loading: true, error: null });
+      const result = await api.auth.login(email, password);
+      setAuthToken(result.token);
+      
+      set({
+        isAuthenticated: true,
+        isAuthLoading: false,
+        currentUser: {
+          id: result.user.id,
+          name: result.user.name,
+          email: result.user.email,
+          avatar: result.user.avatarUrl,
+          role: 'owner',
+          systemRole: result.user.role,
+        },
+        loading: false,
+      });
+      
+      await get().loadTeams();
+      return true;
+    } catch (error: any) {
+      set({ loading: false, error: error.message });
+      return false;
+    }
+  },
+
+  register: async (email: string, name: string, password: string) => {
+    try {
+      set({ loading: true, error: null });
+      const result = await api.auth.register(email, name, password);
+      setAuthToken(result.token);
+      
+      set({
+        isAuthenticated: true,
+        isAuthLoading: false,
+        currentUser: {
+          id: result.user.id,
+          name: result.user.name,
+          email: result.user.email,
+          avatar: result.user.avatarUrl,
+          role: 'owner',
+          systemRole: result.user.role,
+        },
+        currentTeam: result.defaultTeam ? {
+          id: result.defaultTeam.id,
+          name: result.defaultTeam.name,
+          slug: result.defaultTeam.slug,
+          membersCount: 1,
+        } : null,
+        loading: false,
+      });
+      
+      await get().loadTeams();
+      return true;
+    } catch (error: any) {
+      set({ loading: false, error: error.message });
+      return false;
+    }
   },
 
   logout: () => {
-      set({ isAuthenticated: false, currentView: 'dashboard' });
+    setAuthToken(null);
+    set({
+      isAuthenticated: false,
+      isAuthLoading: false,
+      currentUser: null,
+      currentTeam: null,
+      teams: [],
+      workflows: [],
+      executions: [],
+    });
   },
 
   setLanguage: (lang) => set({ language: lang }),
+  setMcpEnabled: (enabled) => {
+    try {
+      localStorage.setItem('mcpEnabled', String(enabled));
+    } catch {
+      // Ignore localStorage errors
+    }
+    set({ mcpEnabled: enabled });
+  },
 
-  inviteMember: (email, role) => {
-      const newUser: User = {
-          id: `u-${Date.now()}`,
-          name: email.split('@')[0],
-          email: email,
-          role: role,
-          avatar: undefined
-      };
+  loadTeams: async () => {
+    try {
+      const teams = await api.teams.list();
+      const formattedTeams: Team[] = teams.map((t: any) => ({
+        id: t.id,
+        name: t.name,
+        slug: t.slug,
+        avatar: t.avatarColor || 'bg-blue-600',
+        membersCount: t.membersCount || 1,
+        role: t.role,
+      }));
       
-      set(state => ({
-          teamMembers: [...state.teamMembers, newUser],
-          currentTeam: {
-              ...state.currentTeam,
-              membersCount: state.currentTeam.membersCount + 1
-          },
-          teams: state.teams.map(t => 
-             t.id === state.currentTeam.id ? { ...t, membersCount: t.membersCount + 1 } : t
-          )
-      }));
-  },
-
-  removeMember: (userId) => {
-      set(state => ({
-          teamMembers: state.teamMembers.filter(m => m.id !== userId),
-          currentTeam: {
-              ...state.currentTeam,
-              membersCount: Math.max(0, state.currentTeam.membersCount - 1)
-          },
-          teams: state.teams.map(t => 
-             t.id === state.currentTeam.id ? { ...t, membersCount: Math.max(0, t.membersCount - 1) } : t
-          )
-      }));
-  },
-
-  switchTeam: (teamId) => {
-      const team = get().teams.find(t => t.id === teamId);
-      if (team) {
-          set({ currentTeam: team });
-          set({ dashboardTab: 'workflows' });
-      }
-  },
-
-  createTeam: (name, slug) => {
-      const colors = ['bg-pink-600', 'bg-indigo-600', 'bg-teal-600', 'bg-red-600'];
-      const randomColor = colors[Math.floor(Math.random() * colors.length)];
+      set({ teams: formattedTeams });
       
-      const newTeam: Team = {
-          id: `t-${Date.now()}`,
-          name: name,
-          slug: slug,
-          avatar: randomColor,
-          membersCount: 1
-      };
-      
-      set(state => ({
-          teams: [...state.teams, newTeam],
-          currentTeam: newTeam,
-          dashboardTab: 'workflows',
-          // Reset members for new team (just admin)
-          teamMembers: [state.currentUser]
-      }));
-  },
-
-  navigateToEditor: (id) => set({ currentView: 'editor', activeWorkflowId: id }),
-  navigateToDashboard: () => set({ currentView: 'dashboard', activeWorkflowId: null }),
-  setDashboardTab: (tab) => set({ dashboardTab: tab }),
-  
-  createWorkflow: () => {
-    const { currentTeam } = get();
-    const newWorkflow: WorkflowMetadata = {
-      id: `wf-${Date.now()}`,
-      teamId: currentTeam.id,
-      name: '未命名工作流',
-      description: '新的工作流草稿',
-      status: 'draft',
-      updatedAt: '刚刚',
-      nodesCount: 1,
-      successRate: 0,
-      runs: 0,
-      version: 0.1,
-      versionStr: '0.1.0',
-      history: []
-    };
-    set((state) => ({
-      workflows: [newWorkflow, ...state.workflows],
-      currentView: 'editor',
-      activeWorkflowId: newWorkflow.id
-    }));
-  },
-
-  deleteWorkflow: (id) => {
-      set((state) => ({
-          workflows: state.workflows.filter(w => w.id !== id),
-          currentView: state.activeWorkflowId === id ? 'dashboard' : state.currentView,
-          activeWorkflowId: state.activeWorkflowId === id ? null : state.activeWorkflowId
-      }));
-  },
-
-  importWorkflow: (data) => {
-      const { currentTeam } = get();
-      set((state) => ({
-          workflows: [{...data, teamId: currentTeam.id}, ...state.workflows]
-      }));
-  },
-
-  deployWorkflow: (id, version, description) => {
-    set((state) => ({
-      workflows: state.workflows.map(wf => {
-        if (wf.id === id) {
-             const newHistoryEntry: WorkflowVersionHistory = {
-                 version: version,
-                 date: new Date().toLocaleString(),
-                 author: state.currentUser.name,
-                 description: description,
-             };
-             
-             return { 
-                ...wf, 
-                status: 'active', 
-                updatedAt: '刚刚',
-                version: parseFloat(version),
-                versionStr: version,
-                history: [newHistoryEntry, ...(wf.history || [])]
-            };
+      if (formattedTeams.length > 0) {
+        const persistedData = localStorage.getItem('easyworkflow-storage');
+        let savedTeamId: string | null = null;
+        
+        if (persistedData) {
+          try {
+            const parsed = JSON.parse(persistedData);
+            savedTeamId = parsed?.state?.lastTeamId || null;
+          } catch {}
         }
-        return wf;
-      })
-    }));
+        
+        if (!savedTeamId) {
+          savedTeamId = localStorage.getItem('currentTeamId');
+        }
+        
+        const currentTeam = get().currentTeam;
+        
+        let targetTeam = null;
+        
+        if (savedTeamId) {
+          targetTeam = formattedTeams.find(t => t.id === savedTeamId);
+        }
+        
+        if (!targetTeam && currentTeam) {
+          targetTeam = formattedTeams.find(t => t.id === currentTeam.id);
+        }
+        
+        if (!targetTeam) {
+          targetTeam = formattedTeams[0];
+        }
+        
+        set({ currentTeam: targetTeam });
+        await get().loadWorkflows();
+      }
+    } catch (error: any) {
+      console.error('Failed to load teams:', error);
+    }
   },
 
-  generateWorkflowApiKey: (id) => {
-      set((state) => ({
-          workflows: state.workflows.map(wf => 
-              wf.id === id ? {
-                  ...wf,
-                  apiKey: `wf_${Math.random().toString(36).substring(2, 10)}_${Date.now()}`
-              } : wf
-          )
-      }));
+  switchTeam: async (teamId: string) => {
+    const team = get().teams.find((t) => t.id === teamId);
+    if (team) {
+      localStorage.setItem('currentTeamId', teamId);
+      set({ currentTeam: team, dashboardTab: 'workflows' });
+      await get().loadWorkflows();
+      window.location.href = '/';
+    }
   },
 
-  generateGlobalApiKey: (name) => {
-      const newKey: ApiKey = {
-          id: `k-${Date.now()}`,
-          name: name,
-          key: `sk_live_${Math.random().toString(36).substring(2)}_${Math.random().toString(36).substring(2)}`,
-          status: 'active',
-          createdAt: new Date().toISOString().split('T')[0],
+  createTeam: async (name: string, slug: string) => {
+    try {
+      const team = await api.teams.create(name);
+      const newTeam: Team = {
+        id: team.id,
+        name: team.name,
+        slug: team.slug,
+        avatar: team.avatarColor || 'bg-blue-600',
+        membersCount: 1,
       };
-      set(state => ({ apiKeys: [newKey, ...state.apiKeys] }));
+      
+      set((state) => ({
+        teams: [...state.teams, newTeam],
+        currentTeam: newTeam,
+        dashboardTab: 'workflows',
+        teamMembers: state.currentUser ? [state.currentUser] : [],
+      }));
+    } catch (error: any) {
+      set({ error: error.message });
+    }
   },
 
-  revokeGlobalApiKey: (id) => {
-      set(state => ({
-          apiKeys: state.apiKeys.map(k => k.id === id ? { ...k, status: 'revoked' } : k)
+  loadTeamMembers: async (teamId: string) => {
+    try {
+      const team = await api.teams.get(teamId);
+      const members: User[] = team.members.map((m: any) => ({
+        id: m.userId,
+        name: m.user.name,
+        email: m.user.email,
+        avatar: m.user.avatarUrl,
+        role: m.role.toLowerCase(),
       }));
+      set({ teamMembers: members });
+    } catch (error: any) {
+      console.error('Failed to load team members:', error);
+    }
+  },
+
+  inviteMember: async (email: string, role: User['role']) => {
+    const { currentTeam } = get();
+    if (!currentTeam) return;
+
+    try {
+      await api.teams.inviteMember(currentTeam.id, email, role.toUpperCase());
+      await get().loadTeamMembers(currentTeam.id);
+    } catch (error: any) {
+      set({ error: error.message });
+    }
+  },
+
+  removeMember: async (userId: string) => {
+    const { currentTeam, teamMembers } = get();
+    if (!currentTeam) return;
+
+    const member = teamMembers.find((m) => m.id === userId);
+    if (!member) return;
+
+    try {
+      await api.teams.removeMember(currentTeam.id, userId);
+      set((state) => ({
+        teamMembers: state.teamMembers.filter((m) => m.id !== userId),
+        currentTeam: state.currentTeam
+          ? { ...state.currentTeam, membersCount: Math.max(0, state.currentTeam.membersCount - 1) }
+          : null,
+      }));
+    } catch (error: any) {
+      set({ error: error.message });
+    }
+  },
+
+  setDashboardTab: (tab) => set({ dashboardTab: tab }),
+
+  loadWorkflows: async () => {
+    const { currentTeam } = get();
+    if (!currentTeam) return;
+
+    try {
+      const workflows = await api.workflows.list(currentTeam.id);
+      const formatted: WorkflowMetadata[] = workflows.map((w: any) => ({
+        id: w.id,
+        teamId: w.teamId,
+        name: w.name,
+        description: w.description,
+        status: w.status,
+        updatedAt: new Date(w.updatedAt).toLocaleString(),
+        nodesCount: w.nodesCount,
+        successRate: w.successRate,
+        runs: w.runsCount,
+        version: w.version,
+        versionStr: w.versionStr,
+        history: (w.history || []).map((h: any) => ({
+          version: h.version,
+          date: h.date ? new Date(h.date).toLocaleString() : '',
+          author: h.author || 'Unknown',
+          description: h.description || '',
+          snapshot: h.snapshot,
+        })),
+      }));
+      
+      set({ workflows: formatted });
+    } catch (error: any) {
+      console.error('Failed to load workflows:', error);
+    }
+  },
+
+  loadWorkflow: async (teamId: string, workflowId: string) => {
+    try {
+      const workflow = await api.workflows.get(teamId, workflowId);
+      const formatted: WorkflowMetadata = {
+        id: workflow.id,
+        teamId: workflow.teamId,
+        name: workflow.name,
+        description: workflow.description,
+        status: workflow.status,
+        updatedAt: new Date(workflow.updatedAt).toLocaleString(),
+        nodesCount: workflow.nodesCount,
+        successRate: workflow.successRate,
+        runs: workflow.runsCount,
+        version: workflow.version,
+        versionStr: workflow.versionStr,
+        history: workflow.history || [],
+        definition: workflow.definition,
+        apiKey: workflow.apiKey,
+      };
+      
+      set((state) => ({
+        workflows: state.workflows.some(w => w.id === workflow.id)
+          ? state.workflows.map(w => w.id === workflow.id ? formatted : w)
+          : [...state.workflows, formatted],
+      }));
+      
+      return formatted;
+    } catch (error: any) {
+      console.error('Failed to load workflow:', error);
+      throw error;
+    }
+  },
+
+  createWorkflow: async (name: string, description?: string) => {
+    const { currentTeam } = get();
+    if (!currentTeam) return;
+
+    try {
+      const workflow = await api.workflows.create(currentTeam.id, name, description || '');
+      
+      const defaultDefinition = {
+        nodes: [{
+          id: 'start-1',
+          type: 'custom',
+          position: { x: 250, y: 250 },
+          data: {
+            label: 'Start / Webhook',
+            description: 'Waiting for POST request',
+            status: 'idle',
+            type: 'start',
+            config: { triggerType: 'webhook' }
+          }
+        }],
+        edges: []
+      };
+      
+      await api.workflows.update(currentTeam.id, workflow.id, { definition: defaultDefinition });
+      
+      const newWorkflow: WorkflowMetadata = {
+        id: workflow.id,
+        teamId: workflow.teamId,
+        name: workflow.name,
+        description: workflow.description || '',
+        status: 'draft',
+        updatedAt: '刚刚',
+        nodesCount: 1,
+        successRate: 0,
+        runs: 0,
+        version: 0.1,
+        versionStr: '0.1.0',
+        history: [],
+        definition: defaultDefinition,
+      };
+      
+      set((state) => ({
+        workflows: [newWorkflow, ...state.workflows],
+      }));
+      
+      return workflow.id;
+    } catch (error: any) {
+      set({ error: error.message });
+      return undefined;
+    }
+  },
+
+  updateWorkflow: async (teamId: string, workflowId: string, data: { name?: string; description?: string; definition?: any }) => {
+    try {
+      await api.workflows.update(teamId, workflowId, data);
+      set((state) => ({
+        workflows: state.workflows.map((w) => {
+          if (w.id === workflowId) {
+            return {
+              ...w,
+              name: data.name || w.name,
+              description: data.description || w.description,
+              definition: data.definition,
+              updatedAt: '刚刚',
+            };
+          }
+          return w;
+        }),
+      }));
+    } catch (error: any) {
+      set({ error: error.message });
+      throw error;
+    }
+  },
+
+  deleteWorkflow: async (id: string) => {
+    const { currentTeam } = get();
+    if (!currentTeam) return;
+
+    try {
+      await api.workflows.delete(currentTeam.id, id);
+      set((state) => ({
+        workflows: state.workflows.filter((w) => w.id !== id),
+      }));
+    } catch (error: any) {
+      set({ error: error.message });
+    }
+  },
+
+  importWorkflow: async (data: WorkflowMetadata) => {
+    const { currentTeam } = get();
+    if (!currentTeam) return;
+
+    try {
+      await api.workflows.import(currentTeam.id, {
+        meta: { name: data.name, description: data.description },
+        nodes: data.nodes || [],
+        edges: data.edges || [],
+      });
+      await get().loadWorkflows();
+    } catch (error: any) {
+      set({ error: error.message });
+    }
+  },
+
+  rollbackWorkflow: async (teamId: string, workflowId: string, version: string) => {
+    try {
+      const result = await api.workflows.rollback(teamId, workflowId, version);
+      set((state) => ({
+        workflows: state.workflows.map((w) => {
+          if (w.id === workflowId) {
+            return {
+              ...w,
+              definition: result.definition,
+              versionStr: result.versionStr,
+              updatedAt: '刚刚',
+            };
+          }
+          return w;
+        }),
+      }));
+      return result;
+    } catch (error: any) {
+      set({ error: error.message });
+      throw error;
+    }
+  },
+
+  deployWorkflow: async (id: string, version: string, description: string) => {
+    const { currentTeam, currentUser } = get();
+    if (!currentTeam) return;
+
+    try {
+      await api.workflows.deploy(currentTeam.id, id, version, description);
+      
+      set((state) => ({
+        workflows: state.workflows.map((wf) => {
+          if (wf.id === id) {
+            const newHistoryEntry: WorkflowVersionHistory = {
+              version,
+              date: new Date().toLocaleString(),
+              author: currentUser?.name || 'Unknown',
+              description,
+            };
+            
+            return {
+              ...wf,
+              status: 'active',
+              updatedAt: '刚刚',
+              version: parseFloat(version),
+              versionStr: version,
+              history: [newHistoryEntry, ...(wf.history || [])],
+            };
+          }
+          return wf;
+        }),
+      }));
+    } catch (error: any) {
+      set({ error: error.message });
+    }
+  },
+
+  generateWorkflowApiKey: async (id: string) => {
+    const { currentTeam } = get();
+    if (!currentTeam) return;
+
+    try {
+      const result = await api.apiKeys.createWorkflow(currentTeam.id, id, {});
+      set((state) => ({
+        workflows: state.workflows.map((wf) =>
+          wf.id === id ? { ...wf, apiKey: result.key } : wf
+        ),
+      }));
+    } catch (error: any) {
+      set({ error: error.message });
+    }
+  },
+
+  loadExecutions: async () => {
+    const { currentTeam } = get();
+    if (!currentTeam) return;
+
+    try {
+      const result = await api.executions.list(currentTeam.id);
+      const formatted: ExecutionLog[] = result.data.map((e: any) => ({
+        id: e.id,
+        workflowId: e.workflowId,
+        workflowName: e.workflowName || 'Unknown',
+        status: e.status,
+        startTime: new Date(e.startTime).toLocaleString(),
+        duration: e.duration || 0,
+        trigger: e.triggerType || 'manual',
+        steps: (e.steps || []).map((s: any) => ({
+          nodeId: s.nodeId,
+          nodeLabel: s.nodeLabel,
+          status: s.status,
+          duration: s.duration || 0,
+          logs: Array.isArray(s.logs) ? s.logs : [],
+          input: s.inputData,
+          output: s.outputData,
+        })),
+        input: e.inputData,
+        output: e.outputData,
+      }));
+      
+      set({ executions: formatted });
+    } catch (error: any) {
+      console.error('Failed to load executions:', error);
+    }
   },
 
   addExecution: (exec) => {
     set((state) => ({
-      executions: [exec, ...state.executions]
+      executions: [exec, ...state.executions],
     }));
   },
 
-  saveNodeTemplate: (nodeData, name, tags) => {
-      const newTemplate: SavedNodeTemplate = {
-          id: `tpl-${Date.now()}`,
-          name: name,
-          tags: tags,
-          createdAt: new Date().toISOString().split('T')[0],
-          nodeType: nodeData.type,
-          data: JSON.parse(JSON.stringify(nodeData)) // Deep copy
-      };
-      newTemplate.data.label = name; 
-      newTemplate.data.status = 'idle' as any;
-      newTemplate.data.logs = [];
-      newTemplate.data.lastRun = undefined;
-      newTemplate.data.duration = undefined;
+  loadApiKeys: async () => {
+    const { currentTeam } = get();
+    if (!currentTeam) return;
 
-      set((state) => ({
-          savedNodes: [newTemplate, ...state.savedNodes]
+    try {
+      const keys = await api.apiKeys.list(currentTeam.id);
+      const formatted: ApiKey[] = keys.map((k: any) => ({
+        id: k.id,
+        name: k.name,
+        key: k.maskedKey,
+        status: k.status,
+        createdAt: new Date(k.createdAt).toLocaleDateString(),
+        lastUsed: k.lastUsedAt ? new Date(k.lastUsedAt).toLocaleString() : undefined,
       }));
+      
+      set({ apiKeys: formatted });
+    } catch (error: any) {
+      console.error('Failed to load API keys:', error);
+    }
+  },
+
+  generateGlobalApiKey: async (name: string) => {
+    const { currentTeam } = get();
+    if (!currentTeam) return;
+
+    try {
+      const result = await api.apiKeys.create(currentTeam.id, name);
+      const newKey: ApiKey = {
+        id: result.id,
+        name: result.name,
+        key: result.key,
+        status: 'active',
+        createdAt: new Date(result.createdAt).toLocaleDateString(),
+      };
+      
+      set((state) => ({ apiKeys: [newKey, ...state.apiKeys] }));
+    } catch (error: any) {
+      set({ error: error.message });
+    }
+  },
+
+  revokeGlobalApiKey: async (id: string) => {
+    const { currentTeam } = get();
+    if (!currentTeam) return;
+
+    try {
+      await api.apiKeys.revoke(currentTeam.id, id);
+      set((state) => ({
+        apiKeys: state.apiKeys.map((k) =>
+          k.id === id ? { ...k, status: 'revoked' } : k
+        ),
+      }));
+    } catch (error: any) {
+      set({ error: error.message });
+    }
+  },
+
+  saveNodeTemplate: (nodeData, name, tags) => {
+    const newTemplate: SavedNodeTemplate = {
+      id: `tpl-${Date.now()}`,
+      name,
+      tags,
+      createdAt: new Date().toISOString().split('T')[0],
+      nodeType: nodeData.type,
+      data: JSON.parse(JSON.stringify(nodeData)),
+    };
+    newTemplate.data.label = name;
+    newTemplate.data.status = 'idle' as any;
+    newTemplate.data.logs = [];
+    newTemplate.data.lastRun = undefined;
+    newTemplate.data.duration = undefined;
+
+    set((state) => ({
+      savedNodes: [newTemplate, ...state.savedNodes],
+    }));
   },
 
   updateSavedNode: (id, updates) => {
-      set((state) => ({
-          savedNodes: state.savedNodes.map(node => 
-            node.id === id ? { ...node, ...updates } : node
-          )
-      }));
+    set((state) => ({
+      savedNodes: state.savedNodes.map((node) =>
+        node.id === id ? { ...node, ...updates } : node
+      ),
+    }));
   },
 
   deleteSavedNode: (id) => {
-      set((state) => ({
-          savedNodes: state.savedNodes.filter(n => n.id !== id)
-      }));
-  }
-}));
+    set((state) => ({
+      savedNodes: state.savedNodes.filter((n) => n.id !== id),
+    }));
+  },
+}),
+{
+  name: 'easyworkflow-storage',
+  partialize: (state) => ({
+    savedNodes: state.savedNodes,
+    language: state.language,
+    mcpEnabled: state.mcpEnabled,
+    lastTeamId: state.currentTeam?.id,
+  }),
+}
+  )
+);

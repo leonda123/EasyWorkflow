@@ -2,16 +2,19 @@ import React from 'react';
 import { clsx } from 'clsx';
 import { Globe, Calendar, FormInput, MousePointerClick, Zap, Clock, Plus, Trash2, Copy, Info } from 'lucide-react';
 import { FormField } from '../../../types';
+import { BACKEND_URL } from '../../../lib/api';
 
 interface StartNodeConfigProps {
     config: any;
     onChange: (key: string, value: any) => void;
     nodeId: string;
+    workflowId?: string;
 }
 
-const StartNodeConfig: React.FC<StartNodeConfigProps> = ({ config, onChange, nodeId }) => {
+const StartNodeConfig: React.FC<StartNodeConfigProps> = ({ config, onChange, nodeId, workflowId }) => {
     const triggerType = config?.triggerType || 'webhook';
     const formFields: FormField[] = config?.formFields || [];
+    const webhookId = workflowId || nodeId;
 
     const handleAddField = () => {
         const newField: FormField = {
@@ -80,7 +83,7 @@ const StartNodeConfig: React.FC<StartNodeConfigProps> = ({ config, onChange, nod
                     <label className="mb-1 block text-xs font-medium text-gray-500">Webhook URL</label>
                     <div className="flex items-center gap-2">
                         <code className="flex-1 truncate rounded bg-white px-2 py-1 text-xs border border-gray-200 text-gray-600 select-all">
-                            https://api.easyflow.com/hooks/{nodeId}
+                            {BACKEND_URL}/api/v1/hooks/{webhookId}
                         </code>
                         <button className="text-gray-400 hover:text-black" title="复制">
                             <Copy className="h-3 w-3" />
@@ -89,7 +92,7 @@ const StartNodeConfig: React.FC<StartNodeConfigProps> = ({ config, onChange, nod
                     <div className="mt-3 text-[10px] text-gray-500">
                         <p className="font-semibold mb-1">CURL 测试:</p>
                         <code className="block bg-gray-900 text-gray-300 p-2 rounded whitespace-pre-wrap font-mono">
-                            curl -X {config?.webhookMethod || 'POST'} https://api.easyflow.com/hooks/{nodeId} \<br/>
+                            curl -X {config?.webhookMethod || 'POST'} {BACKEND_URL}/api/v1/hooks/{webhookId} \<br/>
                             -H "Content-Type: application/json" \<br/>
                             -d '{`{"foo": "bar"}`}'
                         </code>

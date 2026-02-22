@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { clsx } from 'clsx';
-import { Play, Settings, Globe, Workflow, Box, Search, GripVertical, Sparkles, Bookmark, Trash2, Tag, Layers, Edit2, X, Save, Brain, Clock, Database } from 'lucide-react';
+import { Play, Settings, Globe, Workflow, Box, Search, GripVertical, Sparkles, Bookmark, Trash2, Tag, Layers, Edit2, X, Save, Brain, Clock, Database, FileJson, GitMerge, FileText, Repeat } from 'lucide-react';
 import { NodeType, SavedNodeTemplate } from '../types';
 import AiGeneratorModal from './ai/AiGeneratorModal';
 import { useAppStore } from '../store/useAppStore';
@@ -87,6 +87,9 @@ const iconMap = {
   [NodeType.DELAY]: Clock,
   [NodeType.DB_QUERY]: Database,
   [NodeType.END]: Box,
+  [NodeType.PRESET_DATA]: FileJson,
+  [NodeType.WORKFLOW_CALL]: GitMerge,
+  [NodeType.FILE_PARSER]: FileText,
 };
 
 const Sidebar = () => {
@@ -109,9 +112,13 @@ const Sidebar = () => {
     { type: NodeType.LLM, label: tNodes.llm, description: tNodes.llmDesc, icon: Brain },
     { type: NodeType.API_REQUEST, label: tNodes.api, description: tNodes.apiDesc, icon: Globe },
     { type: NodeType.DB_QUERY, label: tNodes.db, description: tNodes.dbDesc, icon: Database },
+    { type: NodeType.FILE_PARSER, label: '文件解析', description: '解析PDF/Word/Excel等文件', icon: FileText },
     { type: NodeType.PROCESS, label: tNodes.process, description: tNodes.processDesc, icon: Settings },
     { type: NodeType.CONDITION, label: tNodes.condition, description: tNodes.conditionDesc, icon: Workflow },
+    { type: NodeType.LOOP, label: '循环', description: '重复执行节点', icon: Repeat },
     { type: NodeType.DELAY, label: tNodes.delay, description: tNodes.delayDesc, icon: Clock },
+    { type: NodeType.PRESET_DATA, label: '预设数据', description: '预设测试数据', icon: FileJson },
+    { type: NodeType.WORKFLOW_CALL, label: '工作流调用', description: '调用其他工作流', icon: GitMerge },
     { type: NodeType.END, label: tNodes.end, description: tNodes.endDesc, icon: Box },
   ];
 
@@ -251,7 +258,7 @@ const Sidebar = () => {
       
       <div className="p-4 border-t border-gray-200 bg-white">
         <div className="text-xs text-gray-400 text-center">
-          v1.3.0 • Enterprise
+          v0.2.1 • Enterprise
         </div>
       </div>
 

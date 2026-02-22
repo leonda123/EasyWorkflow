@@ -1,11 +1,17 @@
-import React, { useState, useRef } from 'react';
-import { Plus, LayoutGrid, List, Settings, Search, MoreHorizontal, Activity, GitBranch, Zap, Clock, User, LogOut, Upload, Trash2, Download, ChevronsUpDown, Check, Users, HelpCircle, CreditCard, ChevronRight, UserCircle, Globe } from 'lucide-react';
+import React, { useState, useRef, useEffect } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
+import { Plus, LayoutGrid, List, Settings, Search, MoreHorizontal, Activity, GitBranch, Zap, Clock, User, LogOut, Upload, Trash2, Download, ChevronsUpDown, Check, Users, HelpCircle, CreditCard, ChevronRight, UserCircle, Globe, Edit2, Rocket, ToggleLeft, ToggleRight, Copy, BarChart3 } from 'lucide-react';
 import { useAppStore } from '../../store/useAppStore';
+import { useFlowStore } from '../../store/useFlowStore';
 import { clsx } from 'clsx';
 import { WorkflowMetadata, DashboardTab, Team } from '../../types';
 import ExecutionsView from './ExecutionsView';
 import SettingsView from './SettingsView';
+import AdminUsersView from '../admin/AdminUsersView';
+import DeploymentsView from './DeploymentsView';
 import CreateTeamModal from './CreateTeamModal';
+import CreateWorkflowModal from './CreateWorkflowModal';
+import EditWorkflowModal from './EditWorkflowModal';
 import HelpModal from './HelpModal';
 import { translations } from '../../locales';
 
@@ -117,11 +123,11 @@ const UserProfileMenu = ({ onOpenHelp }: { onOpenHelp: () => void }) => {
                     <div className="p-4 border-b border-gray-100 bg-gray-50/50">
                          <div className="flex items-center gap-3">
                             <div className="h-10 w-10 rounded-full bg-black flex items-center justify-center text-white text-sm font-bold shadow-sm">
-                                {currentUser.name.substring(0, 2).toUpperCase()}
+                                {currentUser?.name?.substring(0, 2).toUpperCase() || 'U'}
                             </div>
                             <div className="overflow-hidden">
-                                <div className="font-semibold text-gray-900 truncate">{currentUser.name}</div>
-                                <div className="text-xs text-gray-500 truncate">{currentUser.email}</div>
+                                <div className="font-semibold text-gray-900 truncate">{currentUser?.name || 'User'}</div>
+                                <div className="text-xs text-gray-500 truncate">{currentUser?.email || ''}</div>
                             </div>
                         </div>
                         <div className="mt-3 flex items-center gap-2 text-[10px] text-green-700 bg-green-50 px-2 py-1 rounded w-fit border border-green-100">
@@ -175,11 +181,11 @@ const UserProfileMenu = ({ onOpenHelp }: { onOpenHelp: () => void }) => {
                 )}
             >
                 <div className="h-8 w-8 rounded-full bg-black flex items-center justify-center text-white text-xs font-bold shadow-sm">
-                    {currentUser.name.substring(0, 2).toUpperCase()}
+                    {currentUser?.name?.substring(0, 2).toUpperCase() || 'U'}
                 </div>
                 <div className="flex-1 overflow-hidden">
-                    <div className="truncate text-sm font-medium text-gray-900">{currentUser.name}</div>
-                    <div className="truncate text-xs text-gray-500">{currentUser.email}</div>
+                    <div className="truncate text-sm font-medium text-gray-900">{currentUser?.name || 'User'}</div>
+                    <div className="truncate text-xs text-gray-500">{currentUser?.email || ''}</div>
                 </div>
                 <Settings className={clsx("h-4 w-4 text-gray-400 transition-transform duration-200", isOpen && "rotate-45 text-gray-600")} />
             </div>
@@ -193,7 +199,8 @@ const UserProfileMenu = ({ onOpenHelp }: { onOpenHelp: () => void }) => {
 }
 
 const DashboardSidebar = ({ onCreateTeam, onOpenHelp }: { onCreateTeam: () => void, onOpenHelp: () => void }) => {
-  const { dashboardTab, setDashboardTab, language } = useAppStore();
+  const { dashboardTab, language, currentUser } = useAppStore();
+  const navigate = useNavigate();
   const t = translations[language].dashboard;
 
   const navItemClass = (tab: DashboardTab) => clsx(
@@ -203,36 +210,67 @@ const DashboardSidebar = ({ onCreateTeam, onOpenHelp }: { onCreateTeam: () => vo
         : "text-gray-600 hover:bg-gray-100 hover:text-gray-900 border border-transparent"
   );
 
+  const isSuperAdmin = currentUser?.systemRole?.toLowerCase() === 'super_admin';
+
+  const handleNavigation = (tab: DashboardTab) => {
+    switch(tab) {
+      case 'workflows':
+        navigate('/');
+        break;
+      case 'deployments':
+        navigate('/deployments');
+        break;
+      case 'executions':
+        navigate('/executions');
+        break;
+      case 'settings':
+        navigate('/settings');
+        break;
+      case 'admin':
+        navigate('/admin');
+        break;
+    }
+  };
+
   return (
     <aside className="w-64 border-r border-gray-200 bg-gray-50/50 p-4 flex flex-col h-full">
-        {/* Team Switcher */}
         <TeamSwitcher onCreateClick={onCreateTeam} />
 
         <nav className="space-y-1 flex-1">
             <div className="px-2 text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">{t.platform}</div>
-            <button onClick={() => setDashboardTab('workflows')} className={navItemClass('workflows')}>
+            <button onClick={() => handleNavigation('workflows')} className={navItemClass('workflows')}>
                 <LayoutGrid className="h-4 w-4 text-blue-600" />
                 {t.workflows}
             </button>
-            <button onClick={() => setDashboardTab('executions')} className={navItemClass('executions')}>
+            <button onClick={() => handleNavigation('deployments')} className={navItemClass('deployments')}>
+                <Rocket className="h-4 w-4 text-green-600" />
+                {t.deployments}
+            </button>
+            <button onClick={() => handleNavigation('executions')} className={navItemClass('executions')}>
                 <List className="h-4 w-4 text-orange-600" />
                 {t.executions}
             </button>
-            <button onClick={() => setDashboardTab('settings')} className={navItemClass('settings')}>
+            <button onClick={() => handleNavigation('settings')} className={navItemClass('settings')}>
                 <Settings className="h-4 w-4 text-gray-600" />
                 {t.settings}
             </button>
+            {isSuperAdmin && (
+                <button onClick={() => handleNavigation('admin')} className={navItemClass('admin')}>
+                    <Users className="h-4 w-4 text-purple-600" />
+                    {t.admin}
+                </button>
+            )}
         </nav>
 
-        {/* User Profile Popover */}
         <UserProfileMenu onOpenHelp={onOpenHelp} />
     </aside>
   );
 };
 
 // ... WorkflowCard component remains unchanged ...
-const WorkflowCard: React.FC<{ wf: WorkflowMetadata }> = ({ wf }) => {
-    const { navigateToEditor, deleteWorkflow, language } = useAppStore();
+const WorkflowCard: React.FC<{ wf: WorkflowMetadata; onEdit: (wf: WorkflowMetadata) => void }> = ({ wf, onEdit }) => {
+    const { deleteWorkflow, language } = useAppStore();
+    const navigate = useNavigate();
     const t = translations[language].dashboard;
     const [showMenu, setShowMenu] = useState(false);
     const menuRef = useRef<HTMLDivElement>(null);
@@ -252,6 +290,12 @@ const WorkflowCard: React.FC<{ wf: WorkflowMetadata }> = ({ wf }) => {
         if(confirm(`${t.confirmDelete} "${wf.name}"`)) {
             deleteWorkflow(wf.id);
         }
+        setShowMenu(false);
+    }
+    
+    const handleEdit = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        onEdit(wf);
         setShowMenu(false);
     }
 
@@ -278,7 +322,7 @@ const WorkflowCard: React.FC<{ wf: WorkflowMetadata }> = ({ wf }) => {
 
     return (
         <div 
-            onClick={() => navigateToEditor(wf.id)}
+            onClick={() => navigate(`/workflows/${wf.id}`)}
             className="group relative flex flex-col justify-between rounded-xl border border-gray-200 bg-white p-5 shadow-sm transition-all hover:border-blue-400 hover:shadow-md cursor-pointer"
         >
             <div>
@@ -300,6 +344,13 @@ const WorkflowCard: React.FC<{ wf: WorkflowMetadata }> = ({ wf }) => {
                         </button>
                         {showMenu && (
                             <div className="absolute right-0 top-6 z-10 w-32 rounded-md border border-gray-200 bg-white shadow-lg py-1 animate-in fade-in zoom-in-95 duration-100">
+                                <button 
+                                    onClick={handleEdit}
+                                    className="flex w-full items-center gap-2 px-3 py-2 text-xs text-gray-700 hover:bg-gray-50"
+                                >
+                                    <Edit2 className="h-3 w-3" />
+                                    编辑
+                                </button>
                                 <button 
                                     onClick={handleExport}
                                     className="flex w-full items-center gap-2 px-3 py-2 text-xs text-gray-700 hover:bg-gray-50"
@@ -347,16 +398,46 @@ const WorkflowCard: React.FC<{ wf: WorkflowMetadata }> = ({ wf }) => {
 }
 
 const Dashboard = () => {
-  const { workflows, createWorkflow, importWorkflow, dashboardTab, currentTeam, language } = useAppStore();
+  const { workflows, createWorkflow, importWorkflow, dashboardTab, currentTeam, language, setDashboardTab } = useAppStore();
+  const navigate = useNavigate();
+  const location = useLocation();
   const t = translations[language].dashboard;
   const [searchTerm, setSearchTerm] = useState('');
   const [showCreateTeamModal, setShowCreateTeamModal] = useState(false);
+  const [showCreateWorkflowModal, setShowCreateWorkflowModal] = useState(false);
   const [showHelpModal, setShowHelpModal] = useState(false);
+  const [editingWorkflow, setEditingWorkflow] = useState<WorkflowMetadata | null>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const path = location.pathname;
+    if (path === '/deployments') {
+      setDashboardTab('deployments');
+    } else if (path === '/executions') {
+      setDashboardTab('executions');
+    } else if (path === '/settings') {
+      setDashboardTab('settings');
+    } else if (path === '/admin') {
+      setDashboardTab('admin');
+    } else {
+      setDashboardTab('workflows');
+    }
+  }, [location.pathname, setDashboardTab]);
+
+  if (!currentTeam) {
+    return (
+      <div className="flex h-screen w-screen items-center justify-center bg-gray-50">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900 mx-auto mb-4"></div>
+          <p className="text-gray-500">{t.loading || '加载中...'}</p>
+        </div>
+      </div>
+    );
+  }
 
   // Filter workflows by Current Team ID
   const filteredWorkflows = workflows
-    .filter(wf => wf.teamId === currentTeam.id) // Filter by team
+    .filter(wf => wf.teamId === currentTeam.id)
     .filter(wf => 
         wf.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
         wf.description.toLowerCase().includes(searchTerm.toLowerCase())
@@ -398,19 +479,31 @@ const Dashboard = () => {
     reader.readAsText(file);
   };
 
+  const handleCreateWorkflow = async (name: string, description: string) => {
+    const workflowId = await createWorkflow(name, description);
+    if (workflowId) {
+      setShowCreateWorkflowModal(false);
+      navigate(`/workflows/${workflowId}`);
+    }
+  };
+
   const renderContent = () => {
       switch(dashboardTab) {
+          case 'deployments':
+              return <DeploymentsView />;
           case 'executions':
               return <ExecutionsView />;
           case 'settings':
               return <SettingsView />;
+          case 'admin':
+              return <AdminUsersView />;
           case 'workflows':
           default:
               return (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 animate-in fade-in duration-300">
                     {/* Create New Card */}
                     <button 
-                        onClick={createWorkflow}
+                        onClick={() => setShowCreateWorkflowModal(true)}
                         className="group flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-gray-200 bg-transparent p-6 hover:border-blue-400 hover:bg-blue-50/50 transition-all min-h-[220px]"
                     >
                         <div className="h-12 w-12 rounded-full bg-gray-50 flex items-center justify-center group-hover:bg-blue-100 transition-colors mb-3">
@@ -429,7 +522,7 @@ const Dashboard = () => {
                         </div>
                     ) : (
                         filteredWorkflows.map(wf => (
-                            <WorkflowCard key={wf.id} wf={wf} />
+                            <WorkflowCard key={wf.id} wf={wf} onEdit={setEditingWorkflow} />
                         ))
                     )}
                 </div>
@@ -457,8 +550,17 @@ const Dashboard = () => {
                         </span>
                     </>
                 )}
+                {dashboardTab === 'deployments' && (
+                    <>
+                        {t.deployments}
+                        <span className="text-xs font-normal text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">
+                            {currentTeam.name}
+                        </span>
+                    </>
+                )}
                 {dashboardTab === 'executions' && t.executions}
                 {dashboardTab === 'settings' && t.settings}
+                {dashboardTab === 'admin' && t.admin}
             </h1>
             
             {dashboardTab === 'workflows' && (
@@ -490,7 +592,7 @@ const Dashboard = () => {
                     </button>
 
                     <button 
-                        onClick={createWorkflow}
+                        onClick={() => setShowCreateWorkflowModal(true)}
                         className="flex items-center gap-2 rounded-md bg-black px-4 py-2 text-sm font-medium text-white hover:bg-gray-800 transition-all shadow-sm active:scale-95"
                     >
                         <Plus className="h-4 w-4" />
@@ -511,8 +613,20 @@ const Dashboard = () => {
     {showCreateTeamModal && (
         <CreateTeamModal onClose={() => setShowCreateTeamModal(false)} />
     )}
+    {showCreateWorkflowModal && (
+        <CreateWorkflowModal 
+          onClose={() => setShowCreateWorkflowModal(false)}
+          onConfirm={handleCreateWorkflow}
+        />
+    )}
     {showHelpModal && (
         <HelpModal onClose={() => setShowHelpModal(false)} />
+    )}
+    {editingWorkflow && (
+        <EditWorkflowModal 
+          workflow={editingWorkflow} 
+          onClose={() => setEditingWorkflow(null)} 
+        />
     )}
     </>
   );

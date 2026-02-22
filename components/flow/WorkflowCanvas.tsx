@@ -12,13 +12,17 @@ import {
   SelectionMode
 } from '@xyflow/react';
 import CustomNode from './CustomNode';
+import CustomEdge from './CustomEdge';
 import { useFlowStore } from '../../store/useFlowStore';
 import { NodeData, NodeType, NodeStatus } from '../../types';
 import ContextMenu from './ContextMenu';
 
-// Define node types outside component to prevent re-creation
 const nodeTypes = {
   custom: CustomNode,
+};
+
+const edgeTypes = {
+  smoothstep: CustomEdge,
 };
 
 const WorkflowCanvasInner = () => {
@@ -225,12 +229,12 @@ const WorkflowCanvasInner = () => {
         onNodeContextMenu={onNodeContextMenu}
         onPaneContextMenu={onPaneContextMenu}
         nodeTypes={nodeTypes}
+        edgeTypes={edgeTypes}
         onDragOver={onDragOver}
         onDrop={onDrop}
         fitView
         proOptions={{ hideAttribution: true }}
         className="touch-none"
-        // Enable Multi-selection
         selectionMode={SelectionMode.Partial}
         deleteKeyCode={['Backspace', 'Delete']}
         multiSelectionKeyCode={['Control', 'Meta', 'Shift']}

@@ -1,0 +1,113 @@
+services:
+  # ==================== 前端服务 ====================
+  frontend:
+    build:
+      context: .
+      dockerfile: docker/frontend/Dockerfile
+    ports:
+      - "80:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - easyworkflow-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # ==================== 后端服务 ====================
+  backend:
+    build:
+      context: .
+      dockerfile: docker/backend/Dockerfile
+    ports:
+      - "3001:3001"
+    environment:
+      - NODE_ENV=production
+      - PORT=3001
+      - DATABASE_URL=mysql://easyworkflow:easyworkflow123@mysql:3306/easyworkflow
+      - JWT_SECRET=ew_jwt_secret_key_production_2024_secure_random_string
+      - JWT_EXPIRES_IN=7d
+      - ENCRYPTION_KEY=ew_encryption_key_32chars_prod_2024
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_PORT=5672
+      - RABBITMQ_USERNAME=easyworkflow
+      - RABBITMQ_PASSWORD=easyworkflow123
+      - RABBITMQ_VHOST=/
+    depends_on:
+      mysql:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - easyworkflow-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-s", "http://localhost:3001/api/v1/auth/me"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # ==================== MySQL 数据库 ====================
+  mysql:
+    image: mysql:8.0
+    ports:
+      - "3307:3306"
+    environment:
+      - MYSQL_ROOT_PASSWORD=easyworkflow_root_2024
+      - MYSQL_DATABASE=easyworkflow
+      - MYSQL_USER=easyworkflow
+      - MYSQL_PASSWORD=easyworkflow123
+      - MYSQL_CHARACTER_SET_SERVER=utf8mb4
+      - MYSQL_COLLATION_SERVER=utf8mb4_unicode_ci
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./docker/mysql/init:/docker-entrypoint-initdb.d:ro
+    networks:
+      - easyworkflow-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-peasyworkflow_root_2024"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    command: --default-authentication-plugin=mysql_native_password --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+
+  # ==================== RabbitMQ 消息队列 ====================
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    ports:
+      - "5673:5672"
+      - "15673:15672"
+    environment:
+      - RABBITMQ_DEFAULT_USER=easyworkflow
+      - RABBITMQ_DEFAULT_PASS=easyworkflow123
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    networks:
+      - easyworkflow-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+# ==================== 网络配置 ====================
+networks:
+  easyworkflow-network:
+    driver: bridge
+
+# ==================== 数据卷配置 ====================
+volumes:
+  mysql_data:
+    driver: local
+  rabbitmq_data:
+    driver: local

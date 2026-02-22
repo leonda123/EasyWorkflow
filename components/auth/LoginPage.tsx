@@ -4,27 +4,27 @@ import { ArrowRight, Loader2, Workflow, CheckCircle } from 'lucide-react';
 import { translations } from '../../locales';
 
 const LoginPage = () => {
-  const { login, language } = useAppStore();
+  const { login, register, language, loading, error } = useAppStore();
   const t = translations[language].auth;
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
+  const [name, setName] = useState('');
+  const [isRegisterMode, setIsRegisterMode] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email || !password) return;
-
-    setIsLoading(true);
-    // Simulate network delay
-    setTimeout(() => {
-        login(email);
-        setIsLoading(false);
-    }, 1000);
+    
+    if (isRegisterMode) {
+      if (!name) return;
+      await register(email, name, password);
+    } else {
+      await login(email, password);
+    }
   };
 
   return (
     <div className="flex min-h-screen w-full bg-gray-50">
-      {/* Left Panel: Branding / Visuals */}
       <div className="hidden lg:flex w-1/2 bg-black text-white flex-col justify-between p-12 relative overflow-hidden">
         <div className="absolute inset-0 bg-gradient-to-br from-blue-900/40 to-purple-900/40 z-0"></div>
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-blue-500/20 rounded-full blur-[100px] z-0"></div>
@@ -63,7 +63,6 @@ const LoginPage = () => {
         </div>
       </div>
 
-      {/* Right Panel: Login Form */}
       <div className="flex-1 flex flex-col items-center justify-center p-8 lg:p-12">
         <div className="w-full max-w-sm space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
             <div className="text-center lg:text-left">
@@ -72,12 +71,31 @@ const LoginPage = () => {
                         <Workflow className="h-7 w-7 text-white" />
                     </div>
                 </div>
-                <h2 className="text-2xl font-bold text-gray-900">{t.welcome}</h2>
-                <p className="mt-2 text-sm text-gray-600">{t.enterAccount}</p>
+                <h2 className="text-2xl font-bold text-gray-900">{isRegisterMode ? '创建账户' : t.welcome}</h2>
+                <p className="mt-2 text-sm text-gray-600">{isRegisterMode ? '填写以下信息注册新账户' : t.enterAccount}</p>
             </div>
+
+            {error && (
+              <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
+                {error}
+              </div>
+            )}
 
             <form onSubmit={handleSubmit} className="space-y-6">
                 <div className="space-y-4">
+                    {isRegisterMode && (
+                      <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">姓名</label>
+                          <input 
+                              type="text" 
+                              required
+                              value={name}
+                              onChange={(e) => setName(e.target.value)}
+                              className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-black focus:ring-1 focus:ring-black outline-none transition-all"
+                              placeholder="您的姓名"
+                          />
+                      </div>
+                    )}
                     <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">{t.email}</label>
                         <input 
@@ -92,7 +110,7 @@ const LoginPage = () => {
                     <div>
                         <div className="flex items-center justify-between mb-1">
                             <label className="block text-sm font-medium text-gray-700">{t.password}</label>
-                            <a href="#" className="text-xs font-medium text-blue-600 hover:text-blue-500">{t.forgotPassword}</a>
+                            {!isRegisterMode && <a href="#" className="text-xs font-medium text-blue-600 hover:text-blue-500">{t.forgotPassword}</a>}
                         </div>
                         <input 
                             type="password" 
@@ -101,23 +119,24 @@ const LoginPage = () => {
                             onChange={(e) => setPassword(e.target.value)}
                             className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-black focus:ring-1 focus:ring-black outline-none transition-all"
                             placeholder="••••••••"
+                            minLength={6}
                         />
                     </div>
                 </div>
 
                 <button 
                     type="submit" 
-                    disabled={isLoading}
+                    disabled={loading}
                     className="w-full flex items-center justify-center gap-2 rounded-lg bg-black px-4 py-2.5 text-sm font-semibold text-white hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg shadow-gray-200"
                 >
-                    {isLoading ? (
+                    {loading ? (
                         <>
                             <Loader2 className="h-4 w-4 animate-spin" />
-                            {t.loggingIn}
+                            {isRegisterMode ? '注册中...' : t.loggingIn}
                         </>
                     ) : (
                         <>
-                            {t.login}
+                            {isRegisterMode ? '注册' : t.login}
                             <ArrowRight className="h-4 w-4" />
                         </>
                     )}
@@ -152,7 +171,14 @@ const LoginPage = () => {
             </div>
 
             <p className="text-center text-xs text-gray-500">
-                {t.noAccount} <a href="#" className="font-semibold text-blue-600 hover:text-blue-500">{t.register}</a>
+                {isRegisterMode ? '已有账户？' : t.noAccount}{' '}
+                <button 
+                  type="button"
+                  onClick={() => setIsRegisterMode(!isRegisterMode)}
+                  className="font-semibold text-blue-600 hover:text-blue-500"
+                >
+                  {isRegisterMode ? t.login : t.register}
+                </button>
             </p>
         </div>
       </div>

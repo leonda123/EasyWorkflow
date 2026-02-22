@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from 'react';
+import { useParams } from 'react-router-dom';
 import { clsx } from 'clsx';
-import { Save, Clock, FileText, Activity, Settings, X, Bookmark, Globe, Play, Box, Workflow, Brain, Database, PlayCircle } from 'lucide-react';
+import { Save, Clock, FileText, Activity, Settings, X, Bookmark, Globe, Play, Box, Workflow, Brain, Database, PlayCircle, Repeat } from 'lucide-react';
 import { useFlowStore } from '../store/useFlowStore';
 import { useAppStore } from '../store/useAppStore';
 import { NodeStatus, NodeType } from '../types';
 import { translations } from '../locales';
+import { useToastStore } from './common/Toast';
 
-// Import separated config components
 import StartNodeConfig from './nodes/config/StartNodeConfig';
 import ApiNodeConfig from './nodes/config/ApiNodeConfig';
 import ProcessNodeConfig from './nodes/config/ProcessNodeConfig';
@@ -15,10 +16,16 @@ import LlmNodeConfig from './nodes/config/LlmNodeConfig';
 import DelayNodeConfig from './nodes/config/DelayNodeConfig';
 import DbNodeConfig from './nodes/config/DbNodeConfig';
 import EndNodeConfig from './nodes/config/EndNodeConfig';
+import PresetDataNodeConfig from './nodes/config/PresetDataNodeConfig';
+import WorkflowCallNodeConfig from './nodes/config/WorkflowCallNodeConfig';
+import FileParserNodeConfig from './nodes/config/FileParserNodeConfig';
+import LoopNodeConfig from './nodes/config/LoopNodeConfig';
 
 const PropertiesPanel = () => {
-  const { selectedNodeId, nodes, updateNodeData, updateNodeConfig, setSelectedNode, runWorkflow, isRunning } = useFlowStore();
-  const { saveNodeTemplate, language, activeWorkflowId, addExecution, workflows } = useAppStore();
+  const { id: activeWorkflowId } = useParams<{ id: string }>();
+  const { selectedNodeId, nodes, edges, updateNodeData, updateNodeConfig, setSelectedNode, runWorkflow, isRunning, hasUnsavedChanges, tracePosition, isTraceOpen, traceWidth } = useFlowStore();
+  const { saveNodeTemplate, language, addExecution, workflows, currentTeam } = useAppStore();
+  const addToast = useToastStore(state => state.addToast);
   const t = translations[language].editor;
   const [activeTab, setActiveTab] = useState<'config' | 'logs'>('config');
   const [showSavePopover, setShowSavePopover] = useState(false);
@@ -28,6 +35,9 @@ const PropertiesPanel = () => {
 
   const selectedNode = nodes.find((n) => n.id === selectedNodeId);
   const activeWorkflow = workflows.find(w => w.id === activeWorkflowId);
+
+  const isTraceRight = tracePosition === 'right' && isTraceOpen;
+  const panelRightOffset = isTraceRight ? (traceWidth + 16) : 16;
 
   useEffect(() => {
     if (selectedNode) {
@@ -78,10 +88,25 @@ const PropertiesPanel = () => {
   };
 
   const handleRunToNode = async () => {
-      if(isRunning) return;
+      if (isRunning) return;
+      
+      if (!activeWorkflowId) {
+        addToast('warning', '请先保存工作流后再进行分段运行');
+        return;
+      }
+      
+      if (hasUnsavedChanges) {
+        addToast('warning', '工作流有未保存的更改，请先保存');
+        return;
+      }
+      
+      if (!currentTeam) {
+        addToast('warning', '请先选择团队');
+        return;
+      }
       
       const startTime = Date.now();
-      const { success, steps } = await runWorkflow(selectedNode.id);
+      const { success, steps } = await runWorkflow({}, selectedNode.id, activeWorkflowId, currentTeam.id);
 
       if (activeWorkflowId && activeWorkflow) {
         addExecution({
@@ -91,14 +116,17 @@ const PropertiesPanel = () => {
             status: success ? 'success' : 'failed',
             startTime: new Date().toLocaleString(),
             duration: Date.now() - startTime,
-            trigger: 'partial', // Mark as partial run
+            trigger: 'partial',
             steps: steps
         });
-    }
+      }
   }
 
   return (
-    <div className="absolute right-4 top-4 bottom-4 flex w-96 flex-col rounded-xl border border-gray-200 bg-white shadow-xl z-20 overflow-hidden animate-in slide-in-from-right-10 duration-200">
+    <div 
+      className="absolute top-4 bottom-4 flex w-[440px] flex-col rounded-xl border border-gray-200 bg-white shadow-xl z-20 overflow-hidden animate-in slide-in-from-right-10 duration-200"
+      style={{ right: `${panelRightOffset}px` }}
+    >
       {/* Header */}
       <div className="flex items-center justify-between border-b border-gray-100 p-4 bg-gray-50/50">
         <div className="flex items-center gap-2">
@@ -250,14 +278,15 @@ const PropertiesPanel = () => {
             {/* Specific Config */}
             <div className="animate-in fade-in duration-300">
                 {selectedNode.data.type === NodeType.START && (
-                    <StartNodeConfig config={config} onChange={updateConfig} nodeId={selectedNode.id} />
+                    <StartNodeConfig config={config} onChange={updateConfig} nodeId={selectedNode.id} workflowId={activeWorkflowId} />
                 )}
                 {selectedNode.data.type === NodeType.API_REQUEST && (
                     <ApiNodeConfig 
                         config={config} 
                         onChange={updateConfig} 
                         nodes={nodes} 
-                        currentNodeId={selectedNode.id} 
+                        currentNodeId={selectedNode.id}
+                        edges={edges}
                     />
                 )}
                 {selectedNode.data.type === NodeType.PROCESS && (
@@ -265,7 +294,8 @@ const PropertiesPanel = () => {
                         config={config} 
                         onChange={updateConfig} 
                         nodes={nodes} 
-                        currentNodeId={selectedNode.id} 
+                        currentNodeId={selectedNode.id}
+                        edges={edges}
                     />
                 )}
                 {selectedNode.data.type === NodeType.CONDITION && (
@@ -273,7 +303,8 @@ const PropertiesPanel = () => {
                         config={config} 
                         onChange={updateConfig} 
                         nodes={nodes} 
-                        currentNodeId={selectedNode.id} 
+                        currentNodeId={selectedNode.id}
+                        edges={edges}
                     />
                 )}
                 {selectedNode.data.type === NodeType.LLM && (
@@ -281,21 +312,62 @@ const PropertiesPanel = () => {
                         config={config} 
                         onChange={updateConfig} 
                         nodes={nodes} 
-                        currentNodeId={selectedNode.id} 
+                        currentNodeId={selectedNode.id}
+                        edges={edges}
                     />
                 )}
                 {selectedNode.data.type === NodeType.DELAY && (
                     <DelayNodeConfig config={config} onChange={updateConfig} />
                 )}
                 {selectedNode.data.type === NodeType.DB_QUERY && (
-                    <DbNodeConfig config={config} onChange={updateConfig} nodes={nodes} currentNodeId={selectedNode.id} />
+                    <DbNodeConfig 
+                      config={config} 
+                      onChange={updateConfig} 
+                      nodes={nodes} 
+                      currentNodeId={selectedNode.id}
+                      edges={edges}
+                    />
                 )}
                 {selectedNode.data.type === NodeType.END && (
                     <EndNodeConfig 
                         config={config} 
                         onChange={updateConfig} 
                         nodes={nodes} 
-                        currentNodeId={selectedNode.id} 
+                        currentNodeId={selectedNode.id}
+                        edges={edges}
+                    />
+                )}
+                {selectedNode.data.type === NodeType.PRESET_DATA && (
+                    <PresetDataNodeConfig 
+                        config={config} 
+                        onChange={updateConfig} 
+                        nodeId={selectedNode.id}
+                        nodes={nodes}
+                    />
+                )}
+                {selectedNode.data.type === NodeType.WORKFLOW_CALL && (
+                    <WorkflowCallNodeConfig 
+                        config={config} 
+                        onChange={updateConfig} 
+                        nodeId={selectedNode.id}
+                    />
+                )}
+                {selectedNode.data.type === NodeType.FILE_PARSER && (
+                    <FileParserNodeConfig 
+                        config={config} 
+                        onChange={updateConfig} 
+                        nodeId={selectedNode.id}
+                        nodes={nodes}
+                        edges={edges}
+                    />
+                )}
+                {selectedNode.data.type === NodeType.LOOP && (
+                    <LoopNodeConfig 
+                        config={config} 
+                        onChange={updateConfig} 
+                        nodeId={selectedNode.id}
+                        nodes={nodes}
+                        edges={edges}
                     />
                 )}
             </div>
