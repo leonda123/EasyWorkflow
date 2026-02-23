@@ -6,6 +6,12 @@
 
 一个基于 React 和 React Flow 构建的高性能、企业级低代码工作流编排平台。
 
+## 🌐 在线演示
+
+**演示地址：** http://115.190.8.7/
+
+**演示账号：** `test@easyworkflow.com` / `test123`
+
 ## 📸 项目截图
 
 ![demo1](https://gitee.com/leonda/EasyWorkflow/raw/main/doc/demo1.gif)

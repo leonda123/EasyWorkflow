@@ -5,6 +5,12 @@
 
 A high-performance, enterprise-grade low-code workflow orchestration platform built with React and React Flow.
 
+## 🌐 Live Demo
+
+**Demo URL:** http://115.190.8.7/
+
+**Demo Credentials:** `test@easyworkflow.com` / `test123`
+
 ## 📸 Screenshots
 
 > 📷 Demo screenshots and GIF animations will be placed here
