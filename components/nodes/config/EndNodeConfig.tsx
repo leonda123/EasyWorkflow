@@ -1,7 +1,9 @@
-import React from 'react';
+import React, { useMemo, useState } from 'react';
 import { WorkflowNode, WorkflowEdge } from '../../../types';
 import { EnhancedTextarea } from '../../common/NodeInputs';
-import { FileJson, Info } from 'lucide-react';
+import { FileJson, Info, Copy, Check, Eye } from 'lucide-react';
+import { getPreviousNodes } from '../../../lib/variableUtils';
+import { formatJsonPreview } from '../../../lib/responsePreviewUtils';
 
 interface EndNodeConfigProps {
     config: any;
@@ -84,7 +86,68 @@ const RESPONSE_TEMPLATES = [
     }
 ];
 
+const ResponsePreview: React.FC<{ 
+    responseBody: string; 
+    nodes: WorkflowNode[];
+}> = ({ responseBody, nodes }) => {
+    const [copied, setCopied] = useState(false);
+    
+    const preview = useMemo(() => {
+        return formatJsonPreview(responseBody, nodes);
+    }, [responseBody, nodes]);
+    
+    const handleCopy = async () => {
+        try {
+            await navigator.clipboard.writeText(preview);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2000);
+        } catch (err) {
+            console.error('Failed to copy:', err);
+        }
+    };
+    
+    return (
+        <div className="mt-3">
+            <div className="flex items-center justify-between mb-1.5">
+                <label className="text-xs font-medium text-gray-700 flex items-center gap-1">
+                    <Eye className="h-3 w-3" />
+                    响应预览
+                </label>
+                <button
+                    onClick={handleCopy}
+                    className="flex items-center gap-1 text-[10px] text-gray-500 hover:text-gray-700 transition-colors"
+                    title="复制预览"
+                >
+                    {copied ? (
+                        <>
+                            <Check className="h-3 w-3 text-green-500" />
+                            已复制
+                        </>
+                    ) : (
+                        <>
+                            <Copy className="h-3 w-3" />
+                            复制
+                        </>
+                    )}
+                </button>
+            </div>
+            <div className="bg-gray-900 rounded-md p-3 overflow-auto max-h-[200px] border border-gray-800">
+                <pre className="text-[10px] text-gray-300 font-mono whitespace-pre-wrap leading-relaxed">
+                    {preview}
+                </pre>
+            </div>
+            <p className="mt-1 text-[10px] text-gray-400">
+                预览中的变量已替换为示例值，实际执行时会使用真实数据
+            </p>
+        </div>
+    );
+};
+
 const EndNodeConfig: React.FC<EndNodeConfigProps> = ({ config, onChange, nodes, currentNodeId, edges = [] }) => {
+    const previousNodes = useMemo(() => {
+        return getPreviousNodes(currentNodeId, nodes, edges);
+    }, [currentNodeId, nodes, edges]);
+    
     const handleTemplateSelect = (templateId: string) => {
         const template = RESPONSE_TEMPLATES.find(t => t.id === templateId);
         if (template) {
@@ -148,6 +211,8 @@ const EndNodeConfig: React.FC<EndNodeConfigProps> = ({ config, onChange, nodes, 
                     使用 <code className="bg-gray-100 px-1 rounded">{'{{steps.nodeId.data}}'}</code> 插入前置节点数据
                 </p>
             </div>
+            
+            <ResponsePreview responseBody={config?.responseBody || ''} nodes={previousNodes} />
 
             <div className="bg-blue-50 rounded-md p-3">
                 <div className="flex items-center gap-1 text-xs font-medium text-blue-700 mb-2">

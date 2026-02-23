@@ -11,6 +11,7 @@ import { clsx } from 'clsx';
 import { useWorkflowSocket } from '../../hooks/useWorkflowSocket';
 import { api, BACKEND_URL } from '../../lib/api';
 import { translations } from '../../locales';
+import { formatJsonPreview } from '../../lib/responsePreviewUtils';
 
 const UnsavedChangesDialog = ({ isOpen, onConfirm, onCancel, onSave, t }: { isOpen: boolean; onConfirm: () => void; onCancel: () => void; onSave: () => void; t: any }) => {
   if (!isOpen) return null;
@@ -72,7 +73,7 @@ const Header = () => {
     handleExecutionCompleted,
     setCurrentExecutionId,
   } = useFlowStore();
-  const { workflows, deployWorkflow, loadExecutions, generateWorkflowApiKey, executions, currentTeam, updateWorkflow, rollbackWorkflow, language } = useAppStore();
+  const { workflows, deployWorkflow, loadExecutions, loadWorkflow, generateWorkflowApiKey, executions, currentTeam, updateWorkflow, rollbackWorkflow, language } = useAppStore();
   const t = translations[language];
   
   const { subscribeWorkflow, unsubscribeWorkflow } = useWorkflowSocket({
@@ -96,6 +97,7 @@ const Header = () => {
   const [showTestRunModal, setShowTestRunModal] = useState(false);
   const [apiModalTab, setApiModalTab] = useState<'request' | 'response' | 'execution'>('request');
   const [selectedExec, setSelectedExec] = useState<ExecutionLog | null>(null);
+  const [loadingExecDetail, setLoadingExecDetail] = useState(false);
   const [copied, setCopied] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [showUnsavedDialog, setShowUnsavedDialog] = useState(false);
@@ -134,6 +136,7 @@ const Header = () => {
   useEffect(() => {
     if (activeWorkflowId && currentTeam && showApiModal) {
       loadWorkflowApiKey();
+      loadWorkflow(currentTeam.id, activeWorkflowId);
     }
   }, [activeWorkflowId, currentTeam, showApiModal]);
 
@@ -272,6 +275,7 @@ const Header = () => {
   useEffect(() => {
     if (activeWorkflowId) {
       subscribeWorkflow(activeWorkflowId);
+      loadExecutions();
       return () => {
         unsubscribeWorkflow(activeWorkflowId);
       };
@@ -383,6 +387,34 @@ const Header = () => {
       setTimeout(() => setCopied(false), 2000);
   };
 
+  const handleSelectExecution = async (exec: ExecutionLog) => {
+    if (!currentTeam) return;
+    
+    setLoadingExecDetail(true);
+    try {
+      const detail = await api.executions.get(currentTeam.id, exec.id);
+      setSelectedExec({
+        ...exec,
+        steps: (detail.steps || []).map((s: any) => ({
+          nodeId: s.nodeId,
+          nodeLabel: s.nodeLabel,
+          status: s.status,
+          duration: s.duration || 0,
+          logs: Array.isArray(s.logs) ? s.logs : [],
+          input: s.inputData,
+          output: s.outputData,
+        })),
+        input: detail.inputData,
+        output: detail.outputData,
+      });
+    } catch (error) {
+      console.error('Failed to load execution detail:', error);
+      setSelectedExec(exec);
+    } finally {
+      setLoadingExecDetail(false);
+    }
+  };
+
   const apiUrl = `${BACKEND_URL}/api/v1/hooks/${activeWorkflowId}`;
   const startConfig = getStartNodeConfig();
   const httpMethod = startConfig.webhookMethod || 'POST';
@@ -412,19 +444,9 @@ const Header = () => {
   const getResponseExample = (success: boolean) => {
     const endConfig = getEndNodeConfig();
     const responseBody = endConfig.responseBody || '';
-    const responseStatus = endConfig.responseStatus || 200;
     
     if (success && responseBody) {
-      let example = responseBody;
-      example = example.replace(/\{\{steps\.[^}]+\}\}/g, '"示例值"');
-      example = example.replace(/\{\{now\(\)\}\}/g, `"${new Date().toISOString()}"`);
-      example = example.replace(/\{\{length\([^)]+\)\}\}/g, '10');
-      try {
-        const parsed = JSON.parse(example);
-        return JSON.stringify(parsed, null, 2);
-      } catch {
-        return example;
-      }
+      return formatJsonPreview(responseBody, nodes);
     }
     
     if (success) {
@@ -494,7 +516,7 @@ const Header = () => {
       <div className="flex items-center gap-2">
         <div className="flex items-center gap-1 border-r border-gray-200 pr-3 mr-1">
             <button 
-                onClick={() => setShowHistoryModal(true)}
+                onClick={() => { loadExecutions(); setShowHistoryModal(true); }}
                 className="flex items-center gap-1.5 px-2 py-1.5 rounded-md text-gray-500 hover:bg-gray-100 hover:text-gray-900 transition-colors relative"
                 title={t.editor.runLog}
             >
@@ -646,7 +668,7 @@ const Header = () => {
                                  workflowExecutions.map(exec => (
                                     <div 
                                         key={exec.id}
-                                        onClick={() => setSelectedExec(exec)}
+                                        onClick={() => handleSelectExecution(exec)}
                                         className="bg-white border border-gray-200 rounded-lg p-4 hover:border-blue-400 hover:shadow-sm cursor-pointer transition-all"
                                     >
                                         <div className="flex items-center justify-between mb-2">
@@ -681,6 +703,11 @@ const Header = () => {
                              >
                                  &larr; {t.editor.returnList}
                              </button>
+                             {loadingExecDetail ? (
+                               <div className="flex items-center justify-center py-10">
+                                 <div className="h-6 w-6 border-2 border-gray-300 border-t-blue-500 rounded-full animate-spin" />
+                               </div>
+                             ) : (
                              <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-6">
                                 <div className="grid grid-cols-3 gap-4 mb-6 pb-6 border-b border-gray-100">
                                     <div>
@@ -717,19 +744,50 @@ const Header = () => {
                                                     <span className="text-sm font-semibold text-gray-900">{step.nodeLabel}</span>
                                                     <span className="text-[10px] text-gray-400 font-mono bg-gray-50 px-1.5 rounded">{step.duration}ms</span>
                                                 </div>
-                                                <div className="bg-gray-900 rounded-md p-3 font-mono text-[10px] text-gray-300 leading-relaxed overflow-x-auto border border-gray-800 shadow-sm">
-                                                    {step.logs.map((log, i) => (
-                                                        <div key={i} className="mb-0.5 last:mb-0">
-                                                            <span className="text-gray-600 mr-2 opacity-50">$</span>
-                                                            {log}
-                                                        </div>
-                                                    ))}
-                                                </div>
+                                                
+                                                {step.logs && step.logs.length > 0 && (
+                                                  <div className="mb-2">
+                                                    <div className="text-[10px] text-gray-500 font-medium mb-1">日志</div>
+                                                    <div className="bg-gray-900 rounded-md p-3 font-mono text-[10px] text-gray-300 leading-relaxed overflow-x-auto border border-gray-800 shadow-sm">
+                                                        {step.logs.map((log, i) => (
+                                                            <div key={i} className="mb-0.5 last:mb-0">
+                                                                <span className="text-gray-600 mr-2 opacity-50">$</span>
+                                                                {log}
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                  </div>
+                                                )}
+                                                
+                                                {step.input && (
+                                                  <div className="mb-2">
+                                                    <div className="text-[10px] text-gray-500 font-medium mb-1">输入</div>
+                                                    <div className="bg-blue-50 rounded-md p-2 font-mono text-[10px] text-blue-800 leading-relaxed overflow-x-auto border border-blue-100">
+                                                      <pre className="whitespace-pre-wrap">{typeof step.input === 'string' ? step.input : JSON.stringify(step.input, null, 2)}</pre>
+                                                    </div>
+                                                  </div>
+                                                )}
+                                                
+                                                {step.output && (
+                                                  <div className="mb-2">
+                                                    <div className="text-[10px] text-gray-500 font-medium mb-1">输出</div>
+                                                    <div className="bg-green-50 rounded-md p-2 font-mono text-[10px] text-green-800 leading-relaxed overflow-x-auto border border-green-100">
+                                                      <pre className="whitespace-pre-wrap">{typeof step.output === 'string' ? step.output : JSON.stringify(step.output, null, 2)}</pre>
+                                                    </div>
+                                                  </div>
+                                                )}
                                             </div>
                                         </div>
                                     ))}
+                                    
+                                    {(!selectedExec.steps || selectedExec.steps.length === 0) && (
+                                      <div className="text-center py-6 text-gray-400 text-xs">
+                                        暂无节点执行详情
+                                      </div>
+                                    )}
                                 </div>
                              </div>
+                             )}
                         </div>
                     )}
                 </div>

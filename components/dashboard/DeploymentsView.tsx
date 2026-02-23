@@ -7,6 +7,7 @@ import { DeploymentInfo, WorkflowStats } from '../../types';
 import { translations } from '../../locales';
 import { api, BACKEND_URL } from '../../lib/api';
 import WorkflowApiKeySettings from '../workflow/WorkflowApiKeySettings';
+import { formatJsonPreview, getNodesFromDefinition } from '../../lib/responsePreviewUtils';
 
 const formatRelativeTime = (dateStr?: string, language: string = 'zh'): string => {
   const t = translations[language].executions;
@@ -153,18 +154,11 @@ const DeploymentDetailPanel: React.FC<{
   const getResponseExample = () => {
     const endConfig = getEndNodeConfig();
     const responseBody = endConfig.responseBody || '';
+    const definition = deployment.definition;
+    const nodes = getNodesFromDefinition(definition);
     
     if (responseBody) {
-      let example = responseBody;
-      example = example.replace(/\{\{steps\.[^}]+\}\}/g, `"${td.exampleValue}"`);
-      example = example.replace(/\{\{now\(\)\}\}/g, `"${new Date().toISOString()}"`);
-      example = example.replace(/\{\{length\([^)]+\)\}\}/g, '10');
-      try {
-        const parsed = JSON.parse(example);
-        return JSON.stringify(parsed, null, 2);
-      } catch {
-        return example;
-      }
+      return formatJsonPreview(responseBody, nodes);
     }
     
     return `{
@@ -230,10 +224,10 @@ const DeploymentDetailPanel: React.FC<{
         <div>
           <div className="flex items-center justify-between mb-3">
             <span className="text-xs font-medium text-gray-500">{td.detailStatus}</span>
-            <button
+            <div
               onClick={handleToggle}
               className={clsx(
-                "flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-medium transition-colors",
+                "flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-medium transition-colors cursor-pointer",
                 deployment.status === 'active'
                   ? "bg-green-50 text-green-700 hover:bg-green-100"
                   : "bg-gray-100 text-gray-600 hover:bg-gray-200"
@@ -241,7 +235,7 @@ const DeploymentDetailPanel: React.FC<{
             >
               <ToggleSwitch status={deployment.status} onChange={() => {}} language={language} />
               {deployment.status === 'active' ? td.statusActive : td.statusDisabled}
-            </button>
+            </div>
           </div>
           <div className="grid grid-cols-2 gap-3 text-xs">
             <div className="bg-gray-50 rounded-lg p-3">
