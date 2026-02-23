@@ -167,9 +167,7 @@ const Sidebar = () => {
     <aside className="flex w-64 flex-col border-r border-gray-200 bg-gray-50/50 relative">
       <div className="p-4 border-b border-gray-200 bg-white">
         <div className="flex items-center gap-2 mb-4">
-           <div className="h-6 w-6 rounded bg-black flex items-center justify-center">
-             <span className="text-white font-bold text-xs">E</span>
-           </div>
+           <img src="/logo.png" alt="EasyWorkflow" className="h-6 w-6 rounded object-contain" />
            <span className="font-bold text-gray-900 tracking-tight">EasyWorkflow</span>
         </div>
         

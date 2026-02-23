@@ -31,9 +31,7 @@ const LoginPage = () => {
         
         <div className="relative z-10">
             <div className="flex items-center gap-3">
-                <div className="h-10 w-10 bg-white rounded-lg flex items-center justify-center">
-                    <Workflow className="h-6 w-6 text-black" />
-                </div>
+                <img src="/logo.png" alt="EasyWorkflow" className="h-10 w-10 rounded-lg object-contain" />
                 <span className="text-xl font-bold tracking-tight">EasyWorkflow</span>
             </div>
         </div>
@@ -67,9 +65,7 @@ const LoginPage = () => {
         <div className="w-full max-w-sm space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
             <div className="text-center lg:text-left">
                 <div className="lg:hidden flex justify-center mb-6">
-                    <div className="h-12 w-12 bg-black rounded-lg flex items-center justify-center">
-                        <Workflow className="h-7 w-7 text-white" />
-                    </div>
+                    <img src="/logo.png" alt="EasyWorkflow" className="h-12 w-12 rounded-lg object-contain" />
                 </div>
                 <h2 className="text-2xl font-bold text-gray-900">{isRegisterMode ? '创建账户' : t.welcome}</h2>
                 <p className="mt-2 text-sm text-gray-600">{isRegisterMode ? '填写以下信息注册新账户' : t.enterAccount}</p>
