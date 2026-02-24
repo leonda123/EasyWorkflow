@@ -309,13 +309,19 @@ const CreateKeyModal = ({ onClose }: { onClose: () => void }) => {
 };
 
 const SettingsView = () => {
-  const { currentUser, currentTeam, teamMembers, removeMember, language, setLanguage, apiKeys, revokeGlobalApiKey } = useAppStore();
+  const { currentUser, currentTeam, teamMembers, loadTeamMembers, removeMember, language, setLanguage, apiKeys, revokeGlobalApiKey } = useAppStore();
   const t = translations[language].settings;
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [showKeyModal, setShowKeyModal] = useState(false);
   const [copiedKeyId, setCopiedKeyId] = useState<string | null>(null);
 
   const isSuperAdmin = currentUser?.systemRole?.toLowerCase() === 'super_admin';
+
+  useEffect(() => {
+    if (currentTeam) {
+      loadTeamMembers(currentTeam.id);
+    }
+  }, [currentTeam?.id]);
 
   const handleRemove = (id: string, name: string) => {
       if (confirm(`${t.removeConfirm} "${name}"?`)) {

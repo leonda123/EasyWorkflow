@@ -11,6 +11,8 @@ A high-performance, enterprise-grade low-code workflow orchestration platform bu
 
 **Demo Credentials:** `test@easyworkflow.com` / `test123`
 
+**📖 User Manual:** https://my.feishu.cn/wiki/QkWpw4GJTiBqGhk6yH9crJVxnTg
+
 ## 📸 Screenshots
 
 > 📷 Demo screenshots and GIF animations will be placed here

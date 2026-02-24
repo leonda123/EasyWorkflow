@@ -12,6 +12,8 @@
 
 **演示账号：** `test@easyworkflow.com` / `test123`
 
+**📖 用户手册：** https://my.feishu.cn/wiki/QkWpw4GJTiBqGhk6yH9crJVxnTg
+
 ## 📸 项目截图
 
 ![demo1](https://gitee.com/leonda/EasyWorkflow/raw/main/doc/demo1.gif)

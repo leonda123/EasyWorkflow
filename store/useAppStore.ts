@@ -281,6 +281,9 @@ export const useAppStore = create<AppState>()(
         
         set({ currentTeam: targetTeam });
         await get().loadWorkflows();
+        if (targetTeam) {
+          await get().loadTeamMembers(targetTeam.id);
+        }
       }
     } catch (error: any) {
       console.error('Failed to load teams:', error);
@@ -293,6 +296,7 @@ export const useAppStore = create<AppState>()(
       localStorage.setItem('currentTeamId', teamId);
       set({ currentTeam: team, dashboardTab: 'workflows' });
       await get().loadWorkflows();
+      await get().loadTeamMembers(teamId);
       window.location.href = '/';
     }
   },
